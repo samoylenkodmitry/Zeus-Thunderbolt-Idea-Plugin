@@ -4,14 +4,7 @@
     <name>Zeus Thunderbolt</name>
     <vendor>dmitrysamoylenko</vendor>
     <version>1.0</version>
-    <description>
-        Zeus Thunderbolt
-
-        Inspired by PowerMode plugin.
-
-        Each cursor change will cast flying particles.
-        Big cursor changes will cast lightning bolts.
-    </description>
+    <description>Zeus Thunderbolt Inspired by PowerMode plugin. Each cursor change will cast flying particles. Big cursor changes will cast lightning bolts.</description>
 
     <depends>com.intellij.modules.platform</depends>
 
