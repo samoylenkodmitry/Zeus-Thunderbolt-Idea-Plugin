@@ -4,6 +4,8 @@
 <!-- Plugin description -->
 
 Coding should be fun
+
+Zeus Thunderbolt Inspired by PowerMode plugin. Each cursor change will cast flying particles. Big cursor changes will cast lightning bolts.
               
 <!-- Plugin description end -->
 
