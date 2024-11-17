@@ -3,3 +3,8 @@
 .intellijPlatform
 .qodana
 build
+/chain.crt
+/certificate_request.csr
+/private.pem
+/private_encrypted.pem
+/private_key.pem
