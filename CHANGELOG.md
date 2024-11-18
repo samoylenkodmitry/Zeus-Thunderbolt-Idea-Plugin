@@ -1,7 +1,5 @@
 # Zeus Thunderbolt Plugin
 
-## [Released]
-
 ## [1.0.2] - 2024-11-18
 
 ### Changed
