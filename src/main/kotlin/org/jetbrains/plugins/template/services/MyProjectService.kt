@@ -36,9 +36,11 @@ class MyProjectService(project: Project) {
             val elements = Collections.synchronizedList(mutableListOf<PhysicsElement>())
             val addParticles = { editor: Editor ->
                 if (editor.isActualEditor()) {
+                    val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
+                    val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
                     val caretPositions = editor.caretModel.allCarets.map { it.getPoint() }
                     for (caretPosition in caretPositions) {
-                        val newParticles = generateParticles(caretPosition)
+                        val newParticles = generateParticles(x0 = scrollOffsetX, y0 = scrollOffsetY, caretPosition)
                         thisLogger().debug("Generated ${newParticles.size} particles")
                         elements.addAll(newParticles)
                     }
@@ -63,7 +65,7 @@ class MyProjectService(project: Project) {
                 // onDispose
             }
 
-            class ElementsContainer(editor: Editor) : JComponent() {
+            class ElementsContainer(val editor: Editor) : JComponent() {
                 var lastPositions = listOf<Point>()
 
                 init {
@@ -71,10 +73,17 @@ class MyProjectService(project: Project) {
                     setBounds(parent.bounds)
                     setVisible(true)
                     parent.addComponentListener(object : ComponentAdapter() {
-                        override fun componentMoved(e: ComponentEvent) = setBounds(parent.bounds)
-                        override fun componentResized(e: ComponentEvent) = setBounds(parent.bounds)
+                        override fun componentMoved(e: ComponentEvent) = adjustBounds()
+                        override fun componentResized(e: ComponentEvent) = adjustBounds()
+                        fun adjustBounds() {
+                            val area = editor.scrollingModel.visibleArea
+
+                            bounds = Rectangle(area.x, area.y, area.width, area.height)
+                        }
                     })
                     val trackCarets = {
+                        val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
+                        val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
                         val newPositions = editor.caretModel.allCarets.map { it.getPoint() }
                         // Create chain particles for big jumps
                         for (lastPos in lastPositions) {
@@ -83,7 +92,13 @@ class MyProjectService(project: Project) {
                                 val dy = newPos.y - lastPos.y
                                 val distance = Math.sqrt((dx * dx + dy * dy).toDouble())
                                 if (distance > 50) { // Only for significant movements
-                                    elements.addAll(generateChainParticles(lastPos, newPos))
+                                    elements.addAll(
+                                        generateChainParticles(
+                                            x0 = scrollOffsetX,
+                                            y0 = scrollOffsetY,
+                                            lastPos, newPos
+                                        )
+                                    )
                                 }
                             }
                         }
@@ -114,9 +129,15 @@ class MyProjectService(project: Project) {
 
                 override fun paint(g: Graphics) {
                     super.paint(g)
+                    val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
+                    val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
                     val elementsCopy = elements.toList()
                     for (e in elementsCopy) {
+                        val dx = e.x0 - scrollOffsetX
+                        val dy = e.y0 - scrollOffsetY
+                        g.translate(dx.toInt(), dy.toInt())
                         e.render(g, elementsCopy)
+                        g.translate(-dx.toInt(), -dy.toInt())
                     }
                 }
             }
@@ -220,6 +241,8 @@ private fun Caret.positionWithOffset(offsetToVisualPosition: VisualPosition): Po
     }
 
 sealed interface PhysicsElement {
+    val x0: Float
+    val y0: Float
     var x: Float
     var y: Float
     var chainStrength: Float   // New property for chain connections
@@ -227,18 +250,21 @@ sealed interface PhysicsElement {
     fun render(g: Graphics, elements: List<PhysicsElement>)
 }
 
-fun generateChainParticles(start: Point, end: Point, count: Int = 5): List<ChainParticle> {
+fun generateChainParticles(x0: Float, y0: Float, start: Point, end: Point, count: Int = 5): List<ChainParticle> {
     val dx = end.x - start.x
     val dy = end.y - start.y
-    val baseColor = Color.getHSBColor(0.6f + (Math.random() * 0.3f).toFloat(),
-                                    0.8f,
-                                    1f)
-    
+    val baseColor = Color.getHSBColor(
+        0.6f + (Math.random() * 0.3f).toFloat(),
+        0.8f,
+        1f
+    )
+
     return (0..count).map { i ->
         val progress = i.toFloat() / count
         val x = (start.x + dx * progress + (-10..10).random()).toFloat()
         val y = (start.y + dy * progress + (-10..10).random()).toFloat()
         ChainParticle(
+            x0, y0,
             x, y,
             (4..6).random().toFloat(),
             baseColor,
@@ -254,10 +280,11 @@ fun generateChainParticles(start: Point, end: Point, count: Int = 5): List<Chain
     }
 }
 
-fun generateParticles(point: Point, count: Int = 10) = (1..count).map {
+fun generateParticles(x0: Float, y0: Float, point: Point, count: Int = 10) = (1..count).map {
     val angle = Math.random() * 2 * Math.PI
     val speed = (100..200).random().toFloat()
     Particle(
+        x0, y0,
         point.x.toFloat(),
         point.y.toFloat(),
         (2..4).random().toFloat(),
@@ -272,6 +299,8 @@ fun generateParticles(point: Point, count: Int = 10) = (1..count).map {
 data class Force(var x: Float, var y: Float)
 
 data class ChainParticle(
+    override var x0: Float,
+    override var y0: Float,
     override var x: Float,
     override var y: Float,
     var size: Float,
@@ -306,7 +335,7 @@ data class ChainParticle(
             val returnStrength = 5f
             force.x += (originalX - x) * returnStrength * dt
             force.y += (originalY - y) * returnStrength * dt
-            
+
             // Almost no gravity
             force.y += 20f * dt
         } else {
@@ -317,7 +346,7 @@ data class ChainParticle(
         // Basic physics with vibration
         x += force.x * dt + vibeOffsetX.toFloat()
         y += force.y * dt + vibeOffsetY.toFloat()
-        
+
         // Stronger friction to stay in place better
         force.x *= 0.95f
         force.y *= 0.95f
@@ -357,7 +386,7 @@ data class ChainParticle(
         nearby.forEach { other ->
             val alpha = (255 * (lifetime / 3f) * chainStrength).toInt().coerceIn(0, 255)
             g2d.color = Color(color.red, color.green, color.blue, alpha)
-            
+
             // Create bezier curve
             val midX = (x + other.x) / 2
             val midY = (y + other.y) / 2
@@ -371,11 +400,13 @@ data class ChainParticle(
         }
 
         // Draw particle
-        g2d.color = Color(color.red, color.green, color.blue, 
-            (255 * lifetime / 3f).toInt().coerceIn(0, 255))
+        g2d.color = Color(
+            color.red, color.green, color.blue,
+            (255 * lifetime / 3f).toInt().coerceIn(0, 255)
+        )
         g2d.fillOval(
-            (x - size/2).toInt(),
-            (y - size/2).toInt(),
+            (x - size / 2).toInt(),
+            (y - size / 2).toInt(),
             size.toInt(),
             size.toInt()
         )
@@ -386,6 +417,8 @@ data class ChainParticle(
 
 // Update existing Particle class to implement chainStrength
 data class Particle(
+    override val x0: Float,
+    override val y0: Float,
     override var x: Float,
     override var y: Float,
     var size: Float,
@@ -522,13 +555,13 @@ data class Particle(
         // Translate to particle position and apply rotation
         g2d.translate(x.toDouble(), y.toDouble())
         g2d.rotate(rotation.toDouble())
-        
+
         // Draw glow layers with rotation
         val numLayers = 3
         for (i in numLayers downTo 1) {
             val alpha = (0.1f * (i.toFloat() / numLayers) * (lifetime / 2f)).coerceIn(0f, 1f)
             g2d.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha)
-            
+
             val layerRadius = currentGlowRadius * (i.toFloat() / numLayers)
             g2d.color = color
             g2d.fillOval(
@@ -538,7 +571,7 @@ data class Particle(
                 layerRadius.toInt()
             )
         }
-        
+
         // Draw core
         g2d.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (lifetime / 2f).coerceIn(0f, 1f))
         g2d.color = color
