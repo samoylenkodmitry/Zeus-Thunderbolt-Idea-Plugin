@@ -8,7 +8,6 @@ import com.intellij.openapi.editor.actionSystem.TypedAction
 import com.intellij.openapi.editor.actionSystem.TypedActionHandler
 import com.intellij.openapi.editor.event.*
 import com.intellij.openapi.project.Project
-import org.jetbrains.plugins.template.MyBundle
 import java.awt.*
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
@@ -17,7 +16,6 @@ import java.awt.geom.Point2D
 import java.awt.geom.CubicCurve2D
 import java.util.*
 import javax.swing.JComponent
-import javax.swing.SwingUtilities
 import kotlin.concurrent.thread
 import kotlin.math.absoluteValue
 
@@ -109,22 +107,6 @@ class MyProjectService(project: Project) {
                         override fun caretPositionChanged(event: CaretEvent) = trackCarets()
                         override fun caretRemoved(event: CaretEvent) = trackCarets()
                     })
-                    editor.document.addDocumentListener(object : DocumentListener {
-                        override fun documentChanged(event: DocumentEvent) {
-                            val bigChange = event.newFragment.length > 100 ||
-                                    event.oldFragment.length > 100 ||
-                                    event.newFragment.contains("\n") ||
-                                    event.oldFragment.contains("\n")
-                            val len = (event.oldFragment.toString() + event.newFragment.toString())
-                                .split("\n").maxByOrNull { it.length }?.length ?: 0
-
-                            if (bigChange) {
-                                SwingUtilities.invokeLater {
-                                    // BAM!
-                                }
-                            }
-                        }
-                    })
                 }
 
                 override fun paint(g: Graphics) {
@@ -211,14 +193,6 @@ class MyProjectService(project: Project) {
             }
             typedAction.setupRawHandler(typedActionHandler)
         }
-
-
-        fun getRandomNumber() = (1..100).random()
-
-
-        fun doSomething() {
-            thisLogger().info(MyBundle.message("projectService", "doSomething"))
-        }
     }
 }
 
@@ -227,12 +201,6 @@ private fun Editor.isActualEditor(): Boolean =
     editorKind in setOf(EditorKind.MAIN_EDITOR, EditorKind.DIFF)
 
 private fun Caret.getPoint(): Point = positionWithOffset(visualPosition)
-
-private fun Caret.getPointSelectionStart(): Point =
-    positionWithOffset(editor.offsetToVisualPosition(selectionStart))
-
-private fun Caret.getPointSelectionEnd(): Point =
-    positionWithOffset(editor.offsetToVisualPosition(selectionEnd))
 
 private fun Caret.positionWithOffset(offsetToVisualPosition: VisualPosition): Point =
     editor.visualPositionToXY(offsetToVisualPosition).apply {
@@ -261,8 +229,8 @@ fun generateChainParticles(x0: Float, y0: Float, start: Point, end: Point, count
 
     return (0..count).map { i ->
         val progress = i.toFloat() / count
-        val x = (start.x + dx * progress + (-10..10).random()).toFloat()
-        val y = (start.y + dy * progress + (-10..10).random()).toFloat()
+        val x = (start.x + dx * progress + (-10..10).random())
+        val y = (start.y + dy * progress + (-10..10).random())
         ChainParticle(
             x0, y0,
             x, y,
@@ -458,6 +426,7 @@ data class Particle(
         // Update pulse
         pulsePhase += pulseFrequency * dt
         val pulseFactor = 1f + 0.2f * Math.sin(pulsePhase.toDouble()).toFloat()
+        glowRadius = size * 4f * pulseFactor
 
         // Add random wind force
         if (Math.random() < 0.05) { // 5% chance each frame
