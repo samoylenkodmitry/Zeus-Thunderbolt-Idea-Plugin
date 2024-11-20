@@ -27,36 +27,56 @@ class MyProjectService(project: Project) {
             initPlugin()
         }
 
+        val maxParticles = 1500
+        val maxChainParticles = 30
+
         private fun initPlugin() {
-            thisLogger()
             val editorFactory = EditorFactory.getInstance()
             val editors = mutableListOf<Editor>()
             val elements = Collections.synchronizedList(mutableListOf<PhysicsElement>())
-            val addParticles = { editor: Editor ->
-                if (editor.isActualEditor()) {
-                    val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
-                    val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
-                    val caretPositions = editor.caretModel.allCarets.map { it.getPoint() }
-                    for (caretPosition in caretPositions) {
-                        val newParticles = generateParticles(x0 = scrollOffsetX, y0 = scrollOffsetY, caretPosition)
-                        thisLogger().debug("Generated ${newParticles.size} particles")
-                        elements.addAll(newParticles)
+            val lastPositions = mutableMapOf<Caret, Point>()
+            val trackCarets = lambda@{ event: CaretEvent ->
+                val editor = event.editor
+                val caret = event.caret ?: return@lambda
+                val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
+                val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
+                val newPos = caret.getPoint()
+                val lastPos = lastPositions[caret]
+                val distance = lastPos?.distance(newPos)
+                if (distance == null || distance > 1) {
+                    val newParticles = generateParticles(x0 = scrollOffsetX, y0 = scrollOffsetY, newPos)
+                    thisLogger().debug("Generated ${newParticles.size} particles")
+                    elements.addAll(newParticles)
+                }
+                // Create chain particles for big jumps
+                if (distance != null && distance > 50) {
+                    val chainCount = elements.count { it is ChainParticle }
+                    if (chainCount < maxChainParticles) {
+                        elements += generateChainParticles(
+                            x0 = scrollOffsetX,
+                            y0 = scrollOffsetY,
+                            lastPos, newPos
+                        )
                     }
                 }
+                trimParticles(elements)
+                lastPositions[caret] = caret.getPoint()
             }
             val caretListener = object : CaretListener {
 
                 override fun caretAdded(event: CaretEvent) {
                     super.caretAdded(event)
+                    trackCarets(event)
                 }
 
                 override fun caretPositionChanged(event: CaretEvent) {
                     super.caretPositionChanged(event)
-                    addParticles(event.editor)
+                    trackCarets(event)
                 }
 
                 override fun caretRemoved(event: CaretEvent) {
                     super.caretRemoved(event)
+                    trackCarets(event)
                 }
             }
             EditorFactory.getInstance().eventMulticaster.addCaretListener(caretListener) {
@@ -64,7 +84,6 @@ class MyProjectService(project: Project) {
             }
 
             class ElementsContainer(val editor: Editor) : JComponent() {
-                var lastPositions = listOf<Point>()
 
                 init {
                     val parent = editor.contentComponent
@@ -78,34 +97,6 @@ class MyProjectService(project: Project) {
 
                             bounds = Rectangle(area.x, area.y, area.width, area.height)
                         }
-                    })
-                    val trackCarets = {
-                        val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
-                        val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
-                        val newPositions = editor.caretModel.allCarets.map { it.getPoint() }
-                        // Create chain particles for big jumps
-                        for (lastPos in lastPositions) {
-                            for (newPos in newPositions) {
-                                val dx = newPos.x - lastPos.x
-                                val dy = newPos.y - lastPos.y
-                                val distance = Math.sqrt((dx * dx + dy * dy).toDouble())
-                                if (distance > 50) { // Only for significant movements
-                                    elements.addAll(
-                                        generateChainParticles(
-                                            x0 = scrollOffsetX,
-                                            y0 = scrollOffsetY,
-                                            lastPos, newPos
-                                        )
-                                    )
-                                }
-                            }
-                        }
-                        lastPositions = newPositions
-                    }
-                    editor.caretModel.addCaretListener(object : CaretListener {
-                        override fun caretAdded(event: CaretEvent) = trackCarets()
-                        override fun caretPositionChanged(event: CaretEvent) = trackCarets()
-                        override fun caretRemoved(event: CaretEvent) = trackCarets()
                     })
                 }
 
@@ -182,7 +173,6 @@ class MyProjectService(project: Project) {
             val typedActionHandler = object : TypedActionHandler {
 
                 override fun execute(editor: Editor, charTyped: Char, dataContext: DataContext) {
-                    // addParticles(editor)
                     try {
                         defaultHandler.execute(editor, charTyped, dataContext)
                     } catch (e: Exception) {
@@ -192,6 +182,12 @@ class MyProjectService(project: Project) {
 
             }
             typedAction.setupRawHandler(typedActionHandler)
+        }
+
+        private fun trimParticles(elements: MutableList<PhysicsElement>) {
+            if (elements.size > maxParticles) {
+                elements.subList(0, elements.size - maxParticles).clear()
+            }
         }
     }
 }
@@ -469,7 +465,7 @@ data class Particle(
             color.red,
             color.green,
             color.blue,
-            (255 * (lifetime / 2f)).toInt().coerceIn(0, 255)
+            (255 * (lifetime / 1.2f)).toInt().coerceIn(0, 255)
         )
 
         // Interpolate between colors based on lifetime
@@ -508,7 +504,8 @@ data class Particle(
             val path = GeneralPath()
             path.moveTo(trail[0].x.toDouble(), trail[0].y.toDouble())
             for (i in 1 until trail.size) {
-                path.lineTo(trail[i].x.toDouble(), trail[i].y.toDouble())
+                val t = trail.getOrNull(i) ?: continue
+                path.lineTo(t.x.toDouble(), t.y.toDouble())
             }
             g2d.draw(path)
         }
