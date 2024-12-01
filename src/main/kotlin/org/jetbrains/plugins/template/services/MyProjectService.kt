@@ -1,6 +1,7 @@
 package org.jetbrains.plugins.template.services
 
 import com.intellij.openapi.actionSystem.DataContext
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.editor.*
@@ -8,6 +9,7 @@ import com.intellij.openapi.editor.actionSystem.TypedAction
 import com.intellij.openapi.editor.actionSystem.TypedActionHandler
 import com.intellij.openapi.editor.event.*
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import java.awt.*
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
@@ -15,6 +17,7 @@ import java.awt.geom.GeneralPath
 import java.awt.geom.Point2D
 import java.awt.geom.CubicCurve2D
 import java.util.*
+import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.JComponent
 import kotlin.concurrent.thread
 import kotlin.math.absoluteValue
@@ -35,8 +38,10 @@ class MyProjectService(project: Project) {
             val editors = mutableListOf<Editor>()
             val elements = Collections.synchronizedList(mutableListOf<PhysicsElement>())
             val lastPositions = mutableMapOf<Caret, Point>()
+            val currEditorObj = AtomicInteger(0)
             val trackCarets = lambda@{ event: CaretEvent ->
                 val editor = event.editor
+                currEditorObj.set(System.identityHashCode(editor))
                 val caret = event.caret ?: return@lambda
                 val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
                 val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
@@ -79,9 +84,8 @@ class MyProjectService(project: Project) {
                     trackCarets(event)
                 }
             }
-            EditorFactory.getInstance().eventMulticaster.addCaretListener(caretListener) {
-                // onDispose
-            }
+            val app = ApplicationManager.getApplication()
+            EditorFactory.getInstance().eventMulticaster.addCaretListener(caretListener, app)
 
             class ElementsContainer(val editor: Editor) : JComponent() {
 
@@ -102,6 +106,8 @@ class MyProjectService(project: Project) {
 
                 override fun paint(g: Graphics) {
                     super.paint(g)
+                    if (editor.isDisposed) return
+                    if (System.identityHashCode(editor) != currEditorObj.get()) return
                     val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
                     val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
                     val elementsCopy = elements.toList()
@@ -118,7 +124,7 @@ class MyProjectService(project: Project) {
             val containers = mutableMapOf<Editor, ElementsContainer>()
             val renderThread = thread {
                 var frameCount = 0
-                while (true) {
+                while (!Thread.interrupted()) {
                     frameCount++
                     if (frameCount % 60 == 0) { // Log every second at 60 FPS
                         thisLogger().debug("Active elements: ${elements.size}")
@@ -136,38 +142,55 @@ class MyProjectService(project: Project) {
                             elements.remove(deadElement)
                         }
                     containers.values.forEach { it.repaint() }
-                    Thread.sleep(16) // ~60 FPS
+                    try {
+                        Thread.sleep(16) // ~60                         } catch (e: InterruptedException) {
+                    } catch (e: InterruptedException) {
+                        break
+                    }
                 }
             }
 
-            editorFactory.addEditorFactoryListener(object : EditorFactoryListener {
+            val factoryListener = object : EditorFactoryListener {
                 override fun editorCreated(event: EditorFactoryEvent) {
                     super.editorCreated(event)
                     val editor = event.editor
                     val isActualEditor = editor.isActualEditor()
                     thisLogger().debug("Editor created: ${editor.virtualFile?.name}, isActual: $isActualEditor")
-                    if (isActualEditor) {
-                        editors.add(editor)
-                        val container = ElementsContainer(editor)
-                        editor.contentComponent.add(container)
-                        containers[editor] = container
-                    }
+                    if (isActualEditor) addEditor(editor)
                 }
 
                 override fun editorReleased(event: EditorFactoryEvent) {
                     thisLogger().debug("Editor released: ${event.editor.virtualFile?.name}")
                     super.editorReleased(event)
-                    editors.remove(event.editor)
-                    val container = containers.remove(event.editor)
-                    event.editor.contentComponent.remove(container)
+                    removeEditor(event.editor)
                 }
 
-            }) {
+                private fun addEditor(editor: Editor) {
+                    editors.add(editor)
+                    val container = ElementsContainer(editor)
+                    editor.contentComponent.add(container)
+                    containers[editor] = container
+                }
+
+                private fun removeEditor(editor: Editor) {
+                    editors.remove(editor)
+                    val container = containers.remove(editor)
+                    try {
+                        //editor.contentComponent.remove(container)
+                    } catch (e: Exception) {
+                        thisLogger().error(e)
+                    }
+                }
+
+            }
+            val clearOnDispose = {
                 // onDispose
                 editors.clear()
                 renderThread.interrupt()
                 renderThread.join()
             }
+            Disposer.register(app, clearOnDispose)
+            editorFactory.addEditorFactoryListener(factoryListener, app)
             val typedAction = TypedAction.getInstance()
             val defaultHandler = typedAction.rawHandler
             val typedActionHandler = object : TypedActionHandler {

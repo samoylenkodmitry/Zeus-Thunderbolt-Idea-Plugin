@@ -1,5 +1,12 @@
 # Zeus Thunderbolt Plugin
 
+## [1.0.4] - 2024-12-01
+
+### Changed
+
+- Some crash fixes
+- Draw only in a single editor
+
 ## [1.0.3] - 2024-11-20
 
 ### Changed
