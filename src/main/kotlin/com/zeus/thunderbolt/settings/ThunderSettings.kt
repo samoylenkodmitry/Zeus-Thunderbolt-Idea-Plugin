@@ -1,5 +1,5 @@
 
-package org.jetbrains.plugins.template.settings
+package com.zeus.thunderbolt.settings
 
 import com.intellij.openapi.components.*
 import com.intellij.util.xmlb.XmlSerializerUtil

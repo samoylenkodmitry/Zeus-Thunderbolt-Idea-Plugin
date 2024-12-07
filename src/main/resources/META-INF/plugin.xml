@@ -8,19 +8,15 @@
 
     <depends>com.intellij.modules.platform</depends>
 
-    <resource-bundle>messages.MyBundle</resource-bundle>
-
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow factoryClass="org.jetbrains.plugins.template.toolWindow.MyToolWindowFactory" id="MyToolWindow"/>
-        <projectService serviceImplementation="org.jetbrains.plugins.template.services.MyProjectService"/>
-        <applicationService serviceImplementation="org.jetbrains.plugins.template.settings.ThunderSettings"/>
+        <applicationService serviceImplementation="com.zeus.thunderbolt.settings.ThunderSettings"/>
         <applicationConfigurable
-            instance="org.jetbrains.plugins.template.settings.ThunderSettingsConfigurable"
-            id="org.jetbrains.plugins.template.settings.ThunderSettingsConfigurable"
+            instance="com.zeus.thunderbolt.settings.ThunderSettingsConfigurable"
+            id="com.zeus.thunderbolt.settings.ThunderSettingsConfigurable"
             displayName="Zeus Thunderbolt"/>
     </extensions>
 
     <applicationListeners>
-        <listener class="org.jetbrains.plugins.template.listeners.MyApplicationActivationListener" topic="com.intellij.openapi.application.ApplicationActivationListener"/>
+        <listener class="com.zeus.thunderbolt.listeners.MyApplicationActivationListener" topic="com.intellij.openapi.application.ApplicationActivationListener"/>
     </applicationListeners>
 </idea-plugin>

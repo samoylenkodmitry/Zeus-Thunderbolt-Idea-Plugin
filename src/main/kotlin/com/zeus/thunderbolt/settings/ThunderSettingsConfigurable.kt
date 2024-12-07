@@ -1,10 +1,9 @@
-package org.jetbrains.plugins.template.settings
+package com.zeus.thunderbolt.settings
 
 import com.intellij.openapi.options.Configurable
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.FormBuilder
-import org.jetbrains.plugins.template.MyBundle
-import org.jetbrains.plugins.template.services.MyProjectService
+import com.zeus.thunderbolt.services.ZeusThunderbolt
 import javax.swing.JComponent
 import javax.swing.JComboBox
 import javax.swing.JPanel
@@ -19,22 +18,16 @@ class ThunderSettingsConfigurable : Configurable {
         return settingsComponent!!.panel
     }
 
-    override fun isModified(): Boolean {
-        val settings = ThunderSettings.getInstance()
-        return settingsComponent?.themeIndex != settings.themeIndex
-    }
+    override fun isModified(): Boolean = settingsComponent?.themeIndex != ZeusThunderbolt.getCurrentThemeIndex()
 
     override fun apply() {
-        val settings = ThunderSettings.getInstance()
         settingsComponent?.let { component ->
-            settings.themeIndex = component.themeIndex
-            MyProjectService.Singleton.setTheme(component.themeIndex)
+            ZeusThunderbolt.setTheme(component.themeIndex)
         }
     }
 
     override fun reset() {
-        val settings = ThunderSettings.getInstance()
-        settingsComponent?.themeIndex = settings.themeIndex
+        settingsComponent?.themeIndex = ZeusThunderbolt.getCurrentThemeIndex()
     }
 
     override fun disposeUIResources() {
@@ -47,9 +40,9 @@ class ThunderSettingsComponent {
     val panel: JPanel
 
     init {
-        themeCombo.selectedIndex = ThunderSettings.getInstance().themeIndex + 1
+        themeCombo.selectedIndex = ZeusThunderbolt.getCurrentThemeIndex() + 1
         panel = FormBuilder.createFormBuilder()
-            .addLabeledComponent(JBLabel(MyBundle.message("themeLabel")), themeCombo)
+            .addLabeledComponent(JBLabel("Theme:"), themeCombo)
             .addComponentFillVertically(JPanel(), 0)
             .panel
     }
