@@ -35,10 +35,10 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
     private val settings = ThunderSettings.getInstance()
 
-    private val maxParticles = 3500
+    private val maxParticles = 2500
     private val maxChainParticles = 30
     private val particlePool = Collections.synchronizedList(mutableListOf<Particle>())
-    private val maxPoolSize = 4000
+    private val maxPoolSize = 3000
 
     enum class Theme(val colors: List<Color>) {
         None(emptyList()),
