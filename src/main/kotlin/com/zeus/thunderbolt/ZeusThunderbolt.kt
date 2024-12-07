@@ -72,7 +72,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
             Color(0, 255, 255),    // Cyan
             Color(255, 255, 0)     // Yellow
         )),
-        BlackSun(listOf(
+        BlackSnow(listOf(
             Color(0, 0, 0),        // Pure black
             Color(20, 20, 20),     // Dark gray
             Color(40, 40, 40)      // Medium gray
@@ -642,8 +642,8 @@ object ZeusThunderbolt : ApplicationActivationListener {
             // Translate to particle position
             g2d.translate(x.toDouble(), y.toDouble())
 
-            // Determine if we should use dark glow (for Black Sun theme)
-            isDarkGlow = currentTheme == Theme.BlackSun && color.red < 50 && color.green < 50 && color.blue < 50
+            // Determine if we should use dark glow
+            isDarkGlow = currentTheme == Theme.BlackSnow && color.red < 50 && color.green < 50 && color.blue < 50
 
             // Modified glow rendering for dark glow
             val numLayers = if (isDarkGlow) 5 else 3 // More layers for dark glow
