@@ -8,3 +8,4 @@ build
 /private.pem
 /private_encrypted.pem
 /private_key.pem
+bin
