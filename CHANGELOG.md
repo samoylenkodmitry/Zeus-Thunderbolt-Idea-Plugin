@@ -1,5 +1,11 @@
 # Zeus Thunderbolt Plugin
 
+## [1.1.0] - 2024-12-07
+
+### Changed
+
+- Themes settings
+
 ## [1.0.4] - 2024-12-01
 
 ### Changed
