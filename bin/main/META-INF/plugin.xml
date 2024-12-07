@@ -1,8 +1,10 @@
 <!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
 <idea-plugin>
-    <id>org.jetbrains.plugins.template</id>
-    <name>IntelliJ Platform Plugin Template</name>
-    <vendor>JetBrains</vendor>
+    <id>com.dmitrysamoylenko.zeusthunderbolt</id>
+    <name>Zeus Thunderbolt</name>
+    <vendor>dmitrysamoylenko</vendor>
+    <version>1.0</version>
+    <description>Zeus Thunderbolt Inspired by PowerMode plugin. Each cursor change will cast flying particles. Big cursor changes will cast lightning bolts.</description>
 
     <depends>com.intellij.modules.platform</depends>
 

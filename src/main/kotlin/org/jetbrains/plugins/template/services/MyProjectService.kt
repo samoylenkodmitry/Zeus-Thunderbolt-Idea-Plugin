@@ -1,9 +1,7 @@
 package org.jetbrains.plugins.template.services
 
-import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
-import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.editor.*
 import com.intellij.openapi.editor.actionSystem.TypedAction
 import com.intellij.openapi.editor.actionSystem.TypedActionHandler
@@ -20,20 +18,49 @@ import java.util.*
 import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.JComponent
 import kotlin.concurrent.thread
-import kotlin.math.absoluteValue
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 @Service(Service.Level.PROJECT)
 class MyProjectService(project: Project) {
 
     object Singleton {
+        private val maxParticles = 3500
+        private val maxChainParticles = 30
+        private val particlePool = Collections.synchronizedList(mutableListOf<Particle>())
+        private val maxPoolSize = 4000
+
+        // Add color themes
+        private val colorThemes = listOf(
+            // Winter
+            listOf(
+                Color(66, 197, 255),  // Cyan
+                Color(125, 249, 255), // Light blue
+                Color(195, 255, 255)  // White blue
+            ),
+            // Autumn
+            listOf(
+                Color(255, 89, 0),    // Orange
+                Color(255, 159, 0),   // Light orange
+                Color(255, 223, 97)   // Yellow
+            ),
+        )
+
+        private var currentTheme = -1
+
         init {
             initPlugin()
         }
 
-        val maxParticles = 1500
-        val maxChainParticles = 30
+        fun nextTheme() {
+            currentTheme = (currentTheme + 1) % colorThemes.size
+        }
+
+        fun getCurrentThemeColors(): List<Color> = colorThemes[currentTheme]
 
         private fun initPlugin() {
+            nextTheme()
             val editorFactory = EditorFactory.getInstance()
             val editors = mutableListOf<Editor>()
             val elements = Collections.synchronizedList(mutableListOf<PhysicsElement>())
@@ -50,7 +77,6 @@ class MyProjectService(project: Project) {
                 val distance = lastPos?.distance(newPos)
                 if (distance == null || distance > 1) {
                     val newParticles = generateParticles(x0 = scrollOffsetX, y0 = scrollOffsetY, newPos)
-                    thisLogger().debug("Generated ${newParticles.size} particles")
                     elements.addAll(newParticles)
                 }
                 // Create chain particles for big jumps
@@ -91,8 +117,8 @@ class MyProjectService(project: Project) {
 
                 init {
                     val parent = editor.contentComponent
-                    setBounds(parent.bounds)
-                    setVisible(true)
+                    bounds = parent.bounds
+                    isVisible = true
                     parent.addComponentListener(object : ComponentAdapter() {
                         override fun componentMoved(e: ComponentEvent) = adjustBounds()
                         override fun componentResized(e: ComponentEvent) = adjustBounds()
@@ -126,9 +152,6 @@ class MyProjectService(project: Project) {
                 var frameCount = 0
                 while (!Thread.interrupted()) {
                     frameCount++
-                    if (frameCount % 60 == 0) { // Log every second at 60 FPS
-                        thisLogger().debug("Active elements: ${elements.size}")
-                    }
                     val elementsCopy = elements.toList()
                     // Update all elements
                     for (e in elementsCopy) {
@@ -138,12 +161,15 @@ class MyProjectService(project: Project) {
                     elementsCopy
                         .filter { it is ChainParticle && it.isDead || it is Particle && it.isDead }
                         .forEach { deadElement ->
-                            thisLogger().debug("Removing dead element at (${deadElement.x}, ${deadElement.y})")
+                            if (deadElement is Particle) {
+                                deadElement.reset()
+                                putToPool(deadElement)
+                            }
                             elements.remove(deadElement)
                         }
                     containers.values.forEach { it.repaint() }
                     try {
-                        Thread.sleep(16) // ~60                         } catch (e: InterruptedException) {
+                        Thread.sleep(16) // ~60
                     } catch (e: InterruptedException) {
                         break
                     }
@@ -155,12 +181,10 @@ class MyProjectService(project: Project) {
                     super.editorCreated(event)
                     val editor = event.editor
                     val isActualEditor = editor.isActualEditor()
-                    thisLogger().debug("Editor created: ${editor.virtualFile?.name}, isActual: $isActualEditor")
                     if (isActualEditor) addEditor(editor)
                 }
 
                 override fun editorReleased(event: EditorFactoryEvent) {
-                    thisLogger().debug("Editor released: ${event.editor.virtualFile?.name}")
                     super.editorReleased(event)
                     removeEditor(event.editor)
                 }
@@ -174,12 +198,7 @@ class MyProjectService(project: Project) {
 
                 private fun removeEditor(editor: Editor) {
                     editors.remove(editor)
-                    val container = containers.remove(editor)
-                    try {
-                        //editor.contentComponent.remove(container)
-                    } catch (e: Exception) {
-                        thisLogger().error(e)
-                    }
+                    containers.remove(editor)
                 }
 
             }
@@ -193,17 +212,13 @@ class MyProjectService(project: Project) {
             editorFactory.addEditorFactoryListener(factoryListener, app)
             val typedAction = TypedAction.getInstance()
             val defaultHandler = typedAction.rawHandler
-            val typedActionHandler = object : TypedActionHandler {
-
-                override fun execute(editor: Editor, charTyped: Char, dataContext: DataContext) {
+            val typedActionHandler =
+                TypedActionHandler { editor, charTyped, dataContext ->
                     try {
                         defaultHandler.execute(editor, charTyped, dataContext)
-                    } catch (e: Exception) {
-                        thisLogger().error(e)
+                    } catch (_: Exception) {
                     }
                 }
-
-            }
             typedAction.setupRawHandler(typedActionHandler)
         }
 
@@ -212,367 +227,427 @@ class MyProjectService(project: Project) {
                 elements.subList(0, elements.size - maxParticles).clear()
             }
         }
-    }
-}
 
+        private fun getParticleFromPool(): Particle? = particlePool.removeLastOrNull()
 
-private fun Editor.isActualEditor(): Boolean =
-    editorKind in setOf(EditorKind.MAIN_EDITOR, EditorKind.DIFF)
+        private fun putToPool(particle: Particle) {
+            if (particlePool.size < maxPoolSize) {
+                particlePool.add(particle)
+            }
+        }
 
-private fun Caret.getPoint(): Point = positionWithOffset(visualPosition)
+        private fun Editor.isActualEditor(): Boolean =
+            editorKind in setOf(EditorKind.MAIN_EDITOR, EditorKind.DIFF)
 
-private fun Caret.positionWithOffset(offsetToVisualPosition: VisualPosition): Point =
-    editor.visualPositionToXY(offsetToVisualPosition).apply {
-        val location = editor.scrollingModel.visibleArea.location
-        translate(-location.x, -location.y)
-    }
+        private fun Caret.getPoint(): Point = positionWithOffset(visualPosition)
 
-sealed interface PhysicsElement {
-    val x0: Float
-    val y0: Float
-    var x: Float
-    var y: Float
-    var chainStrength: Float   // New property for chain connections
-    fun update(elements: List<PhysicsElement>)
-    fun render(g: Graphics, elements: List<PhysicsElement>)
-}
+        private fun Caret.positionWithOffset(offsetToVisualPosition: VisualPosition): Point =
+            editor.visualPositionToXY(offsetToVisualPosition).apply {
+                val location = editor.scrollingModel.visibleArea.location
+                translate(-location.x, -location.y)
+            }
 
-fun generateChainParticles(x0: Float, y0: Float, start: Point, end: Point, count: Int = 5): List<ChainParticle> {
-    val dx = end.x - start.x
-    val dy = end.y - start.y
-    val baseColor = Color.getHSBColor(
-        0.6f + (Math.random() * 0.3f).toFloat(),
-        0.8f,
-        1f
-    )
+        sealed interface PhysicsElement {
+            var x0: Float
+            var y0: Float
+            var x: Float
+            var y: Float
+            var chainStrength: Float
+            fun update(elements: List<PhysicsElement>)
+            fun render(g: Graphics, elements: List<PhysicsElement>)
+        }
 
-    return (0..count).map { i ->
-        val progress = i.toFloat() / count
-        val x = (start.x + dx * progress + (-10..10).random())
-        val y = (start.y + dy * progress + (-10..10).random())
-        ChainParticle(
-            x0, y0,
-            x, y,
-            (4..6).random().toFloat(),
-            baseColor,
-            Force(
-                dx.toFloat() * 0.1f,  // Reduced initial velocity
-                dy.toFloat() * 0.1f
+        private fun generateChainParticles(
+            x0: Float,
+            y0: Float,
+            start: Point,
+            end: Point,
+            count: Int = 5
+        ): List<ChainParticle> {
+            val dx = end.x - start.x
+            val dy = end.y - start.y
+            val baseColor = Color.getHSBColor(
+                0.6f + (Math.random() * 0.3f).toFloat(),
+                0.8f,
+                1f
+            )
+
+            return (0..count).map { i ->
+                val progress = i.toFloat() / count
+                val x = (start.x + dx * progress + (-10..10).random())
+                val y = (start.y + dy * progress + (-10..10).random())
+                ChainParticle(
+                    x0, y0,
+                    x, y,
+                    (4..6).random().toFloat(),
+                    baseColor,
+                    Force(
+                        dx.toFloat() * 0.1f,  // Reduced initial velocity
+                        dy.toFloat() * 0.1f
+                    ),
+                    maxChainDistance = sqrt((dx * dx + dy * dy).toDouble()).toFloat() / 1.5f,
+                    friction = 0.99f,
+                    originalX = x,    // Remember original position
+                    originalY = y
+                )
+            }
+        }
+
+        private fun generateParticles(x0: Float, y0: Float, point: Point, count: Int = 10) = (1..count).mapNotNull {
+            getParticleFromPool()?.apply {
+                this.x0 = x0
+                this.y0 = y0
+                this.x = point.x.toFloat()
+                this.y = point.y.toFloat()
+            } ?: Particle(
+                x0 = x0, y0 = y0,
+                x = point.x.toFloat(),
+                y = point.y.toFloat(),
+                size = (2..4).random().toFloat(),
+                color = Color.getHSBColor(Math.random().toFloat(), 0.8f, 1f),
+                force = Force(
+                    (100..200).random().toFloat() * cos(Math.random() * 2 * Math.PI).toFloat(),
+                    (100..200).random().toFloat() * sin(Math.random() * 2 * Math.PI).toFloat()
+                )
+            )
+        }
+
+        data class Force(var x: Float, var y: Float)
+
+        data class ChainParticle(
+            override var x0: Float,
+            override var y0: Float,
+            override var x: Float,
+            override var y: Float,
+            var size: Float,
+            var color: Color,
+            var force: Force,
+            var friction: Float = 0.98f,
+            var lifetime: Float = 0.5f,
+            override var chainStrength: Float = 0.8f,
+            var maxChainDistance: Float = 100f,
+            var vibePhase: Float = (Math.random() * Math.PI * 2).toFloat(),
+            var vibeFrequency: Float = (10..15).random().toFloat(),  // Fast vibration
+            var vibeAmplitude: Float = (2..4).random().toFloat(),    // Small but noticeable
+            var originalX: Float = x,
+            var originalY: Float = y,
+            var stayInPlace: Boolean = true
+        ) : PhysicsElement {
+            private var lastTs = System.currentTimeMillis()
+            var isDead = false
+
+            override fun update(elements: List<PhysicsElement>) {
+                val ts = System.currentTimeMillis()
+                val dt = (ts - lastTs) / 1000f
+                lastTs = ts
+
+                // Electric vibration
+                vibePhase += vibeFrequency * dt
+                val vibeOffsetX = sin(vibePhase.toDouble()) * vibeAmplitude
+                val vibeOffsetY = cos(vibePhase * 1.5) * vibeAmplitude
+
+                if (stayInPlace) {
+                    // Gradually return to original position with some elasticity
+                    val returnStrength = 5f
+                    force.x += (originalX - x) * returnStrength * dt
+                    force.y += (originalY - y) * returnStrength * dt
+
+                    // Almost no gravity
+                    force.y += 20f * dt
+                } else {
+                    // Original gravity
+                    force.y += 200f * dt
+                }
+
+                // Basic physics with vibration
+                x += force.x * dt + vibeOffsetX.toFloat()
+                y += force.y * dt + vibeOffsetY.toFloat()
+
+                // Stronger friction to stay in place better
+                force.x *= 0.95f
+                force.y *= 0.95f
+
+                // Chain behavior
+                elements
+                    .filter { it != this && it.chainStrength > 0 }
+                    .forEach { other ->
+                        val dx = other.x - x
+                        val dy = other.y - y
+                        val distance = sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+                        if (distance < maxChainDistance) {
+                            val strength = (1 - distance / maxChainDistance) * chainStrength
+                            force.x += dx * strength * dt
+                            force.y += dy * strength * dt
+                        }
+                    }
+
+                lifetime -= dt
+                if (lifetime <= 0) isDead = true
+            }
+
+            override fun render(g: Graphics, elements: List<PhysicsElement>) {
+                val g2d = g.create() as Graphics2D
+                // Only use antialiasing for visible chains
+                if (lifetime > 0.2f) {
+                    g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                }
+
+                // Draw connections to nearby particles
+                g2d.stroke = BasicStroke(size / 3f)
+                val nearby = elements
+                    .filter { it != this && it.chainStrength > 0 }
+                    .filter { other ->
+                        val dx = other.x - x
+                        val dy = other.y - y
+                        sqrt((dx * dx + dy * dy).toDouble()) < maxChainDistance
+                    }
+
+                nearby.forEach { other ->
+                    val alpha = (255 * (lifetime / 3f) * chainStrength).toInt().coerceIn(0, 255)
+                    g2d.color = Color(color.red, color.green, color.blue, alpha)
+
+                    // Create bezier curve
+                    val midX = (x + other.x) / 2
+                    val midY = (y + other.y) / 2
+                    val curve = CubicCurve2D.Float(
+                        x, y,
+                        midX - (other.y - y) / 4, midY + (other.x - x) / 4,
+                        midX + (other.y - y) / 4, midY - (other.x - x) / 4,
+                        other.x, other.y
+                    )
+                    g2d.draw(curve)
+                }
+
+                // Draw particle
+                g2d.color = Color(
+                    color.red, color.green, color.blue,
+                    (255 * lifetime / 3f).toInt().coerceIn(0, 255)
+                )
+                g2d.fillOval(
+                    (x - size / 2).toInt(),
+                    (y - size / 2).toInt(),
+                    size.toInt(),
+                    size.toInt()
+                )
+
+                g2d.dispose()
+            }
+        }
+
+        data class Particle(
+            override var x0: Float,
+            override var y0: Float,
+            override var x: Float,
+            override var y: Float,
+            var size: Float,
+            var color: Color,
+            var force: Force,
+            var friction: Float = 0.95f,
+            var lifetime: Float = 2f,
+            var glowRadius: Float = size * 4f,
+            var rotation: Float = (Math.random() * Math.PI * 2).toFloat(),
+            var rotationSpeed: Float = (-2..2).random().toFloat(),
+            var wobblePhase: Float = (Math.random() * Math.PI * 2).toFloat(),
+            var wobbleFrequency: Float = (2..5).random().toFloat(),
+            var wobbleAmplitude: Float = (20..40).random().toFloat(),
+            var startColor: Color = color,
+            var endColor: Color = Color(
+                (color.red + (-20..20).random()).coerceIn(0, 255),
+                (color.green + (-20..20).random()).coerceIn(0, 255),
+                (color.blue + (-20..20).random()).coerceIn(0, 255)
             ),
-            maxChainDistance = Math.sqrt((dx * dx + dy * dy).toDouble()).toFloat() / 1.5f,
-            friction = 0.99f,
-            originalX = x,    // Remember original position
-            originalY = y
-        )
-    }
-}
+            var pulsePhase: Float = (Math.random() * Math.PI * 2).toFloat(),
+            var pulseFrequency: Float = (3..6).random().toFloat(),
+            var trail: MutableList<Point2D.Float> = mutableListOf(),
+            override var chainStrength: Float = 0f  // Regular particles don't form chains
+        ) : PhysicsElement {
+            var isDead = false
+            private var lastFrameTime = System.nanoTime()
 
-fun generateParticles(x0: Float, y0: Float, point: Point, count: Int = 10) = (1..count).map {
-    val angle = Math.random() * 2 * Math.PI
-    val speed = (100..200).random().toFloat()
-    Particle(
-        x0, y0,
-        point.x.toFloat(),
-        point.y.toFloat(),
-        (2..4).random().toFloat(),
-        Color.getHSBColor(Math.random().toFloat(), 0.8f, 1f),
-        Force(
-            (speed * Math.cos(angle)).toFloat(),
-            (speed * Math.sin(angle)).toFloat()
-        )
-    )
-}
+            fun reset() {
+                isDead = false
+                lifetime = 2f
+                size = (2..4).random().toFloat()
+                color = Color.getHSBColor(Math.random().toFloat(), 0.8f, 1f)
+                force = Force(
+                    (100..200).random().toFloat() * cos(Math.random() * 2 * Math.PI).toFloat(),
+                    (100..200).random().toFloat() * sin(Math.random() * 2 * Math.PI).toFloat()
+                )
+                pulsePhase = (Math.random() * Math.PI * 2).toFloat()
+                pulseFrequency = (3..6).random().toFloat()
+                trail.clear()
+                startColor = color
+                endColor = Color(
+                    (color.red + (-20..20).random()).coerceIn(0, 255),
+                    (color.green + (-20..20).random()).coerceIn(0, 255),
+                    (color.blue + (-20..20).random()).coerceIn(0, 255)
+                )
+            }
 
-data class Force(var x: Float, var y: Float)
+            override fun update(elements: List<PhysicsElement>) {
+                val currentTime = System.nanoTime()
+                val dt = ((currentTime - lastFrameTime) / 1_000_000_000.0f).coerceAtMost(0.032f) // Cap at ~30 FPS
+                lastFrameTime = currentTime
 
-data class ChainParticle(
-    override var x0: Float,
-    override var y0: Float,
-    override var x: Float,
-    override var y: Float,
-    var size: Float,
-    var color: Color,
-    var force: Force,
-    var friction: Float = 0.98f,
-    var lifetime: Float = 0.5f,
-    override var chainStrength: Float = 0.8f,
-    var maxChainDistance: Float = 100f,
-    var vibePhase: Float = (Math.random() * Math.PI * 2).toFloat(),
-    var vibeFrequency: Float = (10..15).random().toFloat(),  // Fast vibration
-    var vibeAmplitude: Float = (2..4).random().toFloat(),    // Small but noticeable
-    var originalX: Float = x,
-    var originalY: Float = y,
-    var stayInPlace: Boolean = true
-) : PhysicsElement {
-    var lastTs = System.currentTimeMillis()
-    var isDead = false
+                // Culling check - if particle is too far from view, mark as dead
+                if (x < -1000 || x > 3000 || y < -1000 || y > 3000) {
+                    isDead = true
+                    return
+                }
 
-    override fun update(elements: List<PhysicsElement>) {
-        val ts = System.currentTimeMillis()
-        val dt = (ts - lastTs) / 1000f
-        lastTs = ts
+                // Add current position to trail
+                trail.add(Point2D.Float(x, y))
+                if (trail.size > 10) trail.removeAt(0)
 
-        // Electric vibration
-        vibePhase += vibeFrequency * dt
-        val vibeOffsetX = Math.sin(vibePhase.toDouble()) * vibeAmplitude
-        val vibeOffsetY = Math.cos(vibePhase * 1.5) * vibeAmplitude
+                // Update pulse
+                pulsePhase += pulseFrequency * dt
+                val pulseFactor = 1f + 0.2f * sin(pulsePhase.toDouble()).toFloat()
+                glowRadius = size * 4f * pulseFactor
 
-        if (stayInPlace) {
-            // Gradually return to original position with some elasticity
-            val returnStrength = 5f
-            force.x += (originalX - x) * returnStrength * dt
-            force.y += (originalY - y) * returnStrength * dt
+                // Add random wind force
+                if (Math.random() < 0.05) { // 5% chance each frame
+                    force.x += (-50..50).random()
+                    force.y += (-50..50).random()
+                }
 
-            // Almost no gravity
-            force.y += 20f * dt
-        } else {
-            // Original gravity
-            force.y += 200f * dt
-        }
+                // Sine wave motion
+                wobblePhase += wobbleFrequency * dt
+                val wobbleForce = sin(wobblePhase.toDouble()) * wobbleAmplitude
+                force.x += wobbleForce.toFloat() * dt
 
-        // Basic physics with vibration
-        x += force.x * dt + vibeOffsetX.toFloat()
-        y += force.y * dt + vibeOffsetY.toFloat()
+                // Update rotation
+                rotation += rotationSpeed * dt
 
-        // Stronger friction to stay in place better
-        force.x *= 0.95f
-        force.y *= 0.95f
+                // Original physics
+                x += force.x * dt
+                y += force.y * dt
 
-        // Chain behavior
-        elements
-            .filter { it != this && it.chainStrength > 0 }
-            .forEach { other ->
-                val dx = other.x - x
-                val dy = other.y - y
-                val distance = Math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
-                if (distance < maxChainDistance) {
-                    val strength = (1 - distance / maxChainDistance) * chainStrength
-                    force.x += dx * strength * dt
-                    force.y += dy * strength * dt
+                // Modified gravity (slightly reduced)
+                force.y += 300f * dt
+
+                // Apply friction with some randomness
+                val randomFriction = friction * (98..102).random().toFloat() / 100f
+                force.x *= randomFriction
+                force.y *= randomFriction
+
+                // Update lifetime
+                lifetime -= dt
+                if (lifetime <= 0) isDead = true
+
+                // Interpolate between colors based on lifetime
+                val lifeProgress = (lifetime / 2f).coerceIn(0f, 1f)
+                color = Color(
+                    (startColor.red * lifeProgress + endColor.red * (1 - lifeProgress)).toInt(),
+                    (startColor.green * lifeProgress + endColor.green * (1 - lifeProgress)).toInt(),
+                    (startColor.blue * lifeProgress + endColor.blue * (1 - lifeProgress)).toInt(),
+                    (255 * lifeProgress).toInt()
+                )
+
+                // Interact with nearby particles
+                for (other in elements) {
+                    if (other != this) {
+                        val dx = other.x - x
+                        val dy = other.y - y
+                        val distance = sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+                        if (distance < 50f) {
+                            val repulsion = 5f / (distance + 1f)
+                            force.x -= dx * repulsion * dt
+                            force.y -= dy * repulsion * dt
+                        }
+                    }
+                }
+
+                // Apply force field effect
+                applyForceField(this, dt)
+
+                // Apply theme colors
+                if (currentTheme >= 0 && 1.6f < lifetime && lifetime < 1.7f) { // Only for new particles
+                    val themeColors = getCurrentThemeColors()
+                    startColor = themeColors.random()
+                    endColor = themeColors.random()
+                    color = startColor
                 }
             }
 
-        lifetime -= dt
-        if (lifetime <= 0) isDead = true
-    }
-
-    override fun render(g: Graphics, elements: List<PhysicsElement>) {
-        val g2d = g.create() as Graphics2D
-        g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-
-        // Draw connections to nearby particles
-        g2d.stroke = BasicStroke(size / 3f)
-        val nearby = elements
-            .filter { it != this && it.chainStrength > 0 }
-            .filter { other ->
-                val dx = other.x - x
-                val dy = other.y - y
-                Math.sqrt((dx * dx + dy * dy).toDouble()) < maxChainDistance
-            }
-
-        nearby.forEach { other ->
-            val alpha = (255 * (lifetime / 3f) * chainStrength).toInt().coerceIn(0, 255)
-            g2d.color = Color(color.red, color.green, color.blue, alpha)
-
-            // Create bezier curve
-            val midX = (x + other.x) / 2
-            val midY = (y + other.y) / 2
-            val curve = CubicCurve2D.Float(
-                x, y,
-                midX - (other.y - y) / 4, midY + (other.x - x) / 4,
-                midX + (other.y - y) / 4, midY - (other.x - x) / 4,
-                other.x, other.y
-            )
-            g2d.draw(curve)
-        }
-
-        // Draw particle
-        g2d.color = Color(
-            color.red, color.green, color.blue,
-            (255 * lifetime / 3f).toInt().coerceIn(0, 255)
-        )
-        g2d.fillOval(
-            (x - size / 2).toInt(),
-            (y - size / 2).toInt(),
-            size.toInt(),
-            size.toInt()
-        )
-
-        g2d.dispose()
-    }
-}
-
-// Update existing Particle class to implement chainStrength
-data class Particle(
-    override val x0: Float,
-    override val y0: Float,
-    override var x: Float,
-    override var y: Float,
-    var size: Float,
-    var color: Color,
-    var force: Force,
-    var friction: Float = 0.95f,
-    var lifetime: Float = 2f,
-    var glowRadius: Float = size * 4f,  // New property for glow
-    var rotation: Float = (Math.random() * Math.PI * 2).toFloat(),
-    var rotationSpeed: Float = (-2..2).random().toFloat(),
-    var wobblePhase: Float = (Math.random() * Math.PI * 2).toFloat(),
-    var wobbleFrequency: Float = (2..5).random().toFloat(),
-    var wobbleAmplitude: Float = (20..40).random().toFloat(),
-    var startColor: Color = color,
-    var endColor: Color = Color(
-        (color.red + (-20..20).random()).coerceIn(0, 255),
-        (color.green + (-20..20).random()).coerceIn(0, 255),
-        (color.blue + (-20..20).random()).coerceIn(0, 255)
-    ),
-    var pulsePhase: Float = (Math.random() * Math.PI * 2).toFloat(),
-    var pulseFrequency: Float = (3..6).random().toFloat(),
-    var trail: MutableList<Point2D.Float> = mutableListOf(),
-    override var chainStrength: Float = 0f  // Regular particles don't form chains
-) : PhysicsElement {
-    var lastTs = System.currentTimeMillis()
-    var isDead = false
-
-    override fun update(elements: List<PhysicsElement>) {
-        val ts = System.currentTimeMillis()
-        val dt = (ts - lastTs) / 1000f
-        lastTs = ts
-
-        // Add current position to trail
-        trail.add(Point2D.Float(x, y))
-        if (trail.size > 10) trail.removeAt(0)
-
-        // Update pulse
-        pulsePhase += pulseFrequency * dt
-        val pulseFactor = 1f + 0.2f * Math.sin(pulsePhase.toDouble()).toFloat()
-        glowRadius = size * 4f * pulseFactor
-
-        // Add random wind force
-        if (Math.random() < 0.05) { // 5% chance each frame
-            force.x += (-50..50).random()
-            force.y += (-50..50).random()
-        }
-
-        // Sine wave motion
-        wobblePhase += wobbleFrequency * dt
-        val wobbleForce = Math.sin(wobblePhase.toDouble()) * wobbleAmplitude
-        force.x += wobbleForce.toFloat() * dt
-
-        // Update rotation
-        rotation += rotationSpeed * dt
-
-        // Original physics
-        val oldX = x
-        val oldY = y
-        x += force.x * dt
-        y += force.y * dt
-
-        if ((x - oldX).absoluteValue > 100 || (y - oldY).absoluteValue > 100) {
-            thisLogger().warn("Large particle movement: ($oldX, $oldY) -> ($x, $y), force: (${force.x}, ${force.y})")
-        }
-
-        // Modified gravity (slightly reduced)
-        force.y += 300f * dt
-
-        // Apply friction with some randomness
-        val randomFriction = friction * (98..102).random().toFloat() / 100f
-        force.x *= randomFriction
-        force.y *= randomFriction
-
-        // Update lifetime
-        lifetime -= dt
-        if (lifetime <= 0) isDead = true
-
-        // Fade out color
-        color = Color(
-            color.red,
-            color.green,
-            color.blue,
-            (255 * (lifetime / 1.2f)).toInt().coerceIn(0, 255)
-        )
-
-        // Interpolate between colors based on lifetime
-        val lifeProgress = (lifetime / 2f).coerceIn(0f, 1f)
-        color = Color(
-            (startColor.red * lifeProgress + endColor.red * (1 - lifeProgress)).toInt(),
-            (startColor.green * lifeProgress + endColor.green * (1 - lifeProgress)).toInt(),
-            (startColor.blue * lifeProgress + endColor.blue * (1 - lifeProgress)).toInt(),
-            (255 * lifeProgress).toInt()
-        )
-
-        // Interact with nearby particles
-        for (other in elements) {
-            if (other != this) {
-                val dx = other.x - x
-                val dy = other.y - y
-                val distance = Math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
-                if (distance < 50f) {
-                    val repulsion = 5f / (distance + 1f)
-                    force.x -= dx * repulsion * dt
-                    force.y -= dy * repulsion * dt
+            override fun render(g: Graphics, elements: List<PhysicsElement>) {
+                val g2d = g.create() as Graphics2D
+                // Enable better quality rendering only for larger particles
+                if (size > 4) {
+                    g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
                 }
+
+                // Render trail
+                if (trail.size > 1) {
+                    val trailColor =
+                        Color(color.red, color.green, color.blue, (50 * (lifetime / 2f)).toInt().coerceIn(0, 255))
+                    g2d.color = trailColor
+                    g2d.stroke = BasicStroke(size / 4f)
+                    val path = GeneralPath()
+                    val trail0 = trail.getOrNull(0)
+                    if (trail0 != null)
+                        path.moveTo(trail0.x.toDouble(), trail0.y.toDouble())
+                    for (i in 1 until trail.size) {
+                        val t = trail.getOrNull(i) ?: continue
+                        path.lineTo(t.x.toDouble(), t.y.toDouble())
+                    }
+                    g2d.draw(path)
+                }
+
+                // Existing render code with size pulsing
+                val pulseFactor = 1f + 0.2f * sin(pulsePhase.toDouble()).toFloat()
+                val currentSize = size * pulseFactor
+                val currentGlowRadius = glowRadius * pulseFactor
+
+                // Save original transform
+                val originalTransform = g2d.transform
+
+                // Translate to particle position
+                g2d.translate(x.toDouble(), y.toDouble())
+
+                // Draw glow layers with rotation
+                val numLayers = 3
+                for (i in numLayers downTo 1) {
+                    val alpha = (0.1f * (i.toFloat() / numLayers) * (lifetime / 2f)).coerceIn(0f, 1f)
+                    g2d.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha)
+
+                    val layerRadius = currentGlowRadius * (i.toFloat() / numLayers)
+                    g2d.color = color
+                    g2d.fillOval(
+                        (-layerRadius / 2).toInt(),
+                        (-layerRadius / 2).toInt(),
+                        layerRadius.toInt(),
+                        layerRadius.toInt()
+                    )
+                }
+
+                // Draw core
+                g2d.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (lifetime / 2f).coerceIn(0f, 1f))
+                g2d.color = color
+                g2d.fillOval(
+                    (-currentSize / 2).toInt(),
+                    (-currentSize / 2).toInt(),
+                    currentSize.toInt(),
+                    currentSize.toInt()
+                )
+
+                // Restore original transform
+                g2d.transform = originalTransform
+                g2d.dispose()
             }
         }
-    }
 
-    override fun render(g: Graphics, elements: List<PhysicsElement>) {
-        val g2d = g.create() as Graphics2D
-        g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+        // Add force field effect
+        fun applyForceField(particle: Particle, dt: Float) {
+            val fieldStrength = 50f
+            val fieldFrequency = 0.01f
+            val fieldPhase = System.currentTimeMillis() * 0.001f
 
-        // Render trail
-        if (trail.size > 1) {
-            val trailColor = Color(color.red, color.green, color.blue, (50 * (lifetime / 2f)).toInt().coerceIn(0, 255))
-            g2d.color = trailColor
-            g2d.stroke = BasicStroke(size / 4f)
-            val path = GeneralPath()
-            path.moveTo(trail[0].x.toDouble(), trail[0].y.toDouble())
-            for (i in 1 until trail.size) {
-                val t = trail.getOrNull(i) ?: continue
-                path.lineTo(t.x.toDouble(), t.y.toDouble())
-            }
-            g2d.draw(path)
+            // Create a flowing force field effect
+            val forceX = sin((particle.y * fieldFrequency + fieldPhase).toDouble()) * fieldStrength
+            val forceY = cos((particle.x * fieldFrequency + fieldPhase).toDouble()) * fieldStrength
+
+            particle.force.x += forceX.toFloat() * dt
+            particle.force.y += forceY.toFloat() * dt
         }
-
-        // Existing render code with size pulsing
-        val pulseFactor = 1f + 0.2f * Math.sin(pulsePhase.toDouble()).toFloat()
-        val currentSize = size * pulseFactor
-        val currentGlowRadius = glowRadius * pulseFactor
-
-        // Save original transform
-        val originalTransform = g2d.transform
-
-        // Translate to particle position and apply rotation
-        g2d.translate(x.toDouble(), y.toDouble())
-        g2d.rotate(rotation.toDouble())
-
-        // Draw glow layers with rotation
-        val numLayers = 3
-        for (i in numLayers downTo 1) {
-            val alpha = (0.1f * (i.toFloat() / numLayers) * (lifetime / 2f)).coerceIn(0f, 1f)
-            g2d.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha)
-
-            val layerRadius = currentGlowRadius * (i.toFloat() / numLayers)
-            g2d.color = color
-            g2d.fillOval(
-                (-layerRadius / 2).toInt(),
-                (-layerRadius / 2).toInt(),
-                layerRadius.toInt(),
-                layerRadius.toInt()
-            )
-        }
-
-        // Draw core
-        g2d.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (lifetime / 2f).coerceIn(0f, 1f))
-        g2d.color = color
-        g2d.fillOval(
-            (-currentSize / 2).toInt(),
-            (-currentSize / 2).toInt(),
-            currentSize.toInt(),
-            currentSize.toInt()
-        )
-
-        // Restore original transform
-        g2d.transform = originalTransform
-        g2d.dispose()
     }
 }
