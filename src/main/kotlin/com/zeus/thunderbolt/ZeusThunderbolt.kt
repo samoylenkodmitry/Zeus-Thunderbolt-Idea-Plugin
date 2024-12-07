@@ -40,57 +40,58 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private val particlePool = Collections.synchronizedList(mutableListOf<Particle>())
     private val maxPoolSize = 4000
 
-    data class Theme(val name: String, val colors: List<Color>)
-
-    // Add color themes
-    private val themes = listOf(
-        Theme("Winter", listOf(
-            Color(66, 197, 255),  // Cyan
-            Color(125, 249, 255), // Light blue
-            Color(195, 255, 255)  // White blue
+    enum class Theme(val colors: List<Color>) {
+        None(emptyList()),
+        Winter(listOf(
+            Color(66, 197, 255),   // Cyan
+            Color(125, 249, 255),  // Light blue
+            Color(195, 255, 255)   // White blue
         )),
-        Theme("Autumn", listOf(
-            Color(255, 89, 0),    // Orange
-            Color(255, 159, 0),   // Light orange
-            Color(255, 223, 97)   // Yellow
+        Autumn(listOf(
+            Color(255, 89, 0),     // Orange
+            Color(255, 159, 0),    // Light orange
+            Color(255, 223, 97)    // Yellow
         )),
-        Theme("Forest", listOf(
-            Color(34, 139, 34),   // Forest Green
-            Color(50, 205, 50),   // Lime Green
-            Color(144, 238, 144)  // Light Green
+        Forest(listOf(
+            Color(34, 139, 34),    // Forest Green
+            Color(50, 205, 50),    // Lime Green
+            Color(144, 238, 144)   // Light Green
         )),
-        Theme("Ocean", listOf(
-            Color(0, 119, 190),   // Deep Blue
-            Color(0, 191, 255),   // Deep Sky Blue
-            Color(135, 206, 235)  // Sky Blue
+        Ocean(listOf(
+            Color(0, 119, 190),    // Deep Blue
+            Color(0, 191, 255),    // Deep Sky Blue
+            Color(135, 206, 235)   // Sky Blue
         )),
-        Theme("Sunset", listOf(
-            Color(255, 69, 0),    // Red-Orange
-            Color(255, 140, 0),   // Dark Orange
-            Color(255, 0, 255)    // Magenta
+        Sunset(listOf(
+            Color(255, 69, 0),     // Red-Orange
+            Color(255, 140, 0),    // Dark Orange
+            Color(255, 0, 255)     // Magenta
         )),
-        Theme("Neon", listOf(
-            Color(255, 0, 102),   // Hot Pink
-            Color(0, 255, 255),   // Cyan
-            Color(255, 255, 0)    // Yellow
+        Neon(listOf(
+            Color(255, 0, 102),    // Hot Pink
+            Color(0, 255, 255),    // Cyan
+            Color(255, 255, 0)     // Yellow
+        )),
+        BlackSun(listOf(
+            Color(0, 0, 0),        // Pure black
+            Color(20, 20, 20),     // Dark gray
+            Color(40, 40, 40)      // Medium gray
         ))
-    )
+    }
+    private val themes = Theme.entries.toTypedArray()
 
-    private var currentTheme = settings.themeIndex
+    private var currentTheme = Theme.None
 
     fun setTheme(index: Int) {
-        currentTheme = index.coerceIn(-1, themes.lastIndex)
-        settings.themeIndex = currentTheme
+        currentTheme = themes.getOrElse(index) { Theme.None }
+        settings.themeIndex = index
     }
 
-    fun getCurrentThemeIndex() = currentTheme
+    fun getCurrentThemeIndex(): Int = themes.indexOf(currentTheme)
 
-    fun getCurrentThemeColors(): List<Color> =
-        if (currentTheme >= 0) themes[currentTheme].colors
-        else emptyList()
+    fun getCurrentThemeColors(): List<Color> = currentTheme.colors
 
-    fun getThemeNames(): Array<String> =
-        arrayOf("None") + themes.map { it.name }.toTypedArray()
+    fun getThemeNames() = themes.map { it.name }
 
     init {
         initPlugin()
@@ -495,7 +496,8 @@ object ZeusThunderbolt : ApplicationActivationListener {
         var pulsePhase: Float = (Math.random() * Math.PI * 2).toFloat(),
         var pulseFrequency: Float = (3..6).random().toFloat(),
         var trail: MutableList<Point2D.Float> = mutableListOf(),
-        override var chainStrength: Float = 0f  // Regular particles don't form chains
+        override var chainStrength: Float = 0f,  // Regular particles don't form chains
+        var isDarkGlow: Boolean = false
     ) : PhysicsElement {
         var isDead = false
         private var lastFrameTime = System.nanoTime()
@@ -597,7 +599,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
             applyForceField(this, dt)
 
             // Apply theme colors
-            if (currentTheme >= 0 && 1.6f < lifetime && lifetime < 1.7f) { // Only for new particles
+            if (currentTheme != Theme.None && 1.6f < lifetime && lifetime < 1.7f) { // Only for new particles
                 val themeColors = getCurrentThemeColors()
                 startColor = themeColors.random()
                 endColor = themeColors.random()
@@ -640,13 +642,21 @@ object ZeusThunderbolt : ApplicationActivationListener {
             // Translate to particle position
             g2d.translate(x.toDouble(), y.toDouble())
 
-            // Draw glow layers with rotation
-            val numLayers = 3
+            // Determine if we should use dark glow (for Black Sun theme)
+            isDarkGlow = currentTheme == Theme.BlackSun && color.red < 50 && color.green < 50 && color.blue < 50
+
+            // Modified glow rendering for dark glow
+            val numLayers = if (isDarkGlow) 5 else 3 // More layers for dark glow
             for (i in numLayers downTo 1) {
-                val alpha = (0.1f * (i.toFloat() / numLayers) * (lifetime / 2f)).coerceIn(0f, 1f)
+                val baseAlpha = if (isDarkGlow) 0.3f else 0.1f
+                val alpha = (baseAlpha * (i.toFloat() / numLayers) * (lifetime / 2f)).coerceIn(0f, 1f)
                 g2d.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha)
 
                 val layerRadius = currentGlowRadius * (i.toFloat() / numLayers)
+                if (isDarkGlow) {
+                    // For dark glow, use darker composite mode
+                    g2d.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha * 1.5f)
+                }
                 g2d.color = color
                 g2d.fillOval(
                     (-layerRadius / 2).toInt(),

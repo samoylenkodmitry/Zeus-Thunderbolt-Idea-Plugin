@@ -35,11 +35,11 @@ class SettingsUI : Configurable {
 }
 
 class ThunderSettingsComponent {
-    private val themeCombo = JComboBox(ZeusThunderbolt.getThemeNames())
+    private val themeCombo = JComboBox(ZeusThunderbolt.getThemeNames().toTypedArray())
     val panel: JPanel
 
     init {
-        themeCombo.selectedIndex = ZeusThunderbolt.getCurrentThemeIndex() + 1
+        themeCombo.selectedIndex = ZeusThunderbolt.getCurrentThemeIndex()
         panel = FormBuilder.createFormBuilder()
             .addLabeledComponent(JBLabel("Effect Theme:"), themeCombo)
             .addComponentFillVertically(JPanel(), 0)
@@ -47,8 +47,8 @@ class ThunderSettingsComponent {
     }
 
     var themeIndex: Int
-        get() = themeCombo.selectedIndex - 1
+        get() = themeCombo.selectedIndex
         set(value) {
-            themeCombo.selectedIndex = value + 1
+            themeCombo.selectedIndex = value
         }
 }
