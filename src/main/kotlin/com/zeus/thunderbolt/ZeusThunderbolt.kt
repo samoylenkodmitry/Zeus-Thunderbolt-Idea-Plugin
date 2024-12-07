@@ -40,34 +40,57 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private val particlePool = Collections.synchronizedList(mutableListOf<Particle>())
     private val maxPoolSize = 4000
 
+    data class Theme(val name: String, val colors: List<Color>)
+
     // Add color themes
-    private val colorThemes = listOf(
-        // Winter
-        listOf(
+    private val themes = listOf(
+        Theme("Winter", listOf(
             Color(66, 197, 255),  // Cyan
             Color(125, 249, 255), // Light blue
             Color(195, 255, 255)  // White blue
-        ),
-        // Autumn
-        listOf(
+        )),
+        Theme("Autumn", listOf(
             Color(255, 89, 0),    // Orange
             Color(255, 159, 0),   // Light orange
             Color(255, 223, 97)   // Yellow
-        ),
+        )),
+        Theme("Forest", listOf(
+            Color(34, 139, 34),   // Forest Green
+            Color(50, 205, 50),   // Lime Green
+            Color(144, 238, 144)  // Light Green
+        )),
+        Theme("Ocean", listOf(
+            Color(0, 119, 190),   // Deep Blue
+            Color(0, 191, 255),   // Deep Sky Blue
+            Color(135, 206, 235)  // Sky Blue
+        )),
+        Theme("Sunset", listOf(
+            Color(255, 69, 0),    // Red-Orange
+            Color(255, 140, 0),   // Dark Orange
+            Color(255, 0, 255)    // Magenta
+        )),
+        Theme("Neon", listOf(
+            Color(255, 0, 102),   // Hot Pink
+            Color(0, 255, 255),   // Cyan
+            Color(255, 255, 0)    // Yellow
+        ))
     )
 
     private var currentTheme = settings.themeIndex
 
     fun setTheme(index: Int) {
-        currentTheme = index.coerceIn(-1, colorThemes.lastIndex)
+        currentTheme = index.coerceIn(-1, themes.lastIndex)
         settings.themeIndex = currentTheme
     }
 
     fun getCurrentThemeIndex() = currentTheme
 
     fun getCurrentThemeColors(): List<Color> =
-        if (currentTheme >= 0) colorThemes[currentTheme]
+        if (currentTheme >= 0) themes[currentTheme].colors
         else emptyList()
+
+    fun getThemeNames(): Array<String> =
+        arrayOf("None") + themes.map { it.name }.toTypedArray()
 
     init {
         initPlugin()
