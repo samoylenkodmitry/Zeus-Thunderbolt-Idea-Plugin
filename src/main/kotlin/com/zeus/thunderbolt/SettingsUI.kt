@@ -1,14 +1,13 @@
-package com.zeus.thunderbolt.settings
+package com.zeus.thunderbolt
 
 import com.intellij.openapi.options.Configurable
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.FormBuilder
-import com.zeus.thunderbolt.services.ZeusThunderbolt
 import javax.swing.JComponent
 import javax.swing.JComboBox
 import javax.swing.JPanel
 
-class ThunderSettingsConfigurable : Configurable {
+class SettingsUI : Configurable {
     private var settingsComponent: ThunderSettingsComponent? = null
 
     override fun getDisplayName(): String = "Zeus Thunderbolt"

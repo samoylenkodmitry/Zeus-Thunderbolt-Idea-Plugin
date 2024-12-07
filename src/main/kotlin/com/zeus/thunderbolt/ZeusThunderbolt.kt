@@ -1,11 +1,18 @@
-package com.zeus.thunderbolt.services
+package com.zeus.thunderbolt
 
+import com.intellij.openapi.application.ApplicationActivationListener
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.components.PersistentStateComponent
+import com.intellij.openapi.components.State
+import com.intellij.openapi.components.Storage
+import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.*
 import com.intellij.openapi.editor.actionSystem.TypedAction
 import com.intellij.openapi.editor.actionSystem.TypedActionHandler
 import com.intellij.openapi.editor.event.*
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.wm.IdeFrame
+import com.intellij.util.xmlb.XmlSerializerUtil
 import java.awt.*
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
@@ -19,9 +26,15 @@ import kotlin.concurrent.thread
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
-import com.zeus.thunderbolt.settings.ThunderSettings
 
-object ZeusThunderbolt {
+object ZeusThunderbolt : ApplicationActivationListener {
+
+    override fun applicationActivated(ideFrame: IdeFrame) {
+        ZeusThunderbolt
+    }
+
+    private val settings = ThunderSettings.getInstance()
+
     private val maxParticles = 3500
     private val maxChainParticles = 30
     private val particlePool = Collections.synchronizedList(mutableListOf<Particle>())
@@ -43,15 +56,11 @@ object ZeusThunderbolt {
         ),
     )
 
-    private var currentTheme = ThunderSettings.getInstance().themeIndex
-
-    init {
-        initPlugin()
-    }
+    private var currentTheme = settings.themeIndex
 
     fun setTheme(index: Int) {
         currentTheme = index.coerceIn(-1, colorThemes.lastIndex)
-        ThunderSettings.getInstance().themeIndex = currentTheme
+        settings.themeIndex = currentTheme
     }
 
     fun getCurrentThemeIndex() = currentTheme
@@ -59,6 +68,10 @@ object ZeusThunderbolt {
     fun getCurrentThemeColors(): List<Color> =
         if (currentTheme >= 0) colorThemes[currentTheme]
         else emptyList()
+
+    init {
+        initPlugin()
+    }
 
     private fun initPlugin() {
         val editorFactory = EditorFactory.getInstance()
@@ -648,5 +661,24 @@ object ZeusThunderbolt {
 
         particle.force.x += forceX.toFloat() * dt
         particle.force.y += forceY.toFloat() * dt
+    }
+}
+
+@State(
+    name = "com.zeus.thunderbolt.services.ZeusThunderbolt",
+    storages = [Storage("ThunderSettings.xml")]
+)
+
+class ThunderSettings : PersistentStateComponent<ThunderSettings> {
+    var themeIndex: Int = -1 // Default to "None" theme
+
+    override fun getState(): ThunderSettings = this
+
+    override fun loadState(state: ThunderSettings) {
+        XmlSerializerUtil.copyBean(state, this)
+    }
+
+    companion object {
+        fun getInstance(): ThunderSettings = service()
     }
 }

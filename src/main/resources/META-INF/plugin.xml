@@ -9,14 +9,14 @@
     <depends>com.intellij.modules.platform</depends>
 
     <extensions defaultExtensionNs="com.intellij">
-        <applicationService serviceImplementation="com.zeus.thunderbolt.settings.ThunderSettings"/>
+        <applicationService serviceImplementation="com.zeus.thunderbolt.ThunderSettings"/>
         <applicationConfigurable
-            instance="com.zeus.thunderbolt.settings.ThunderSettingsConfigurable"
-            id="com.zeus.thunderbolt.settings.ThunderSettingsConfigurable"
+            instance="com.zeus.thunderbolt.SettingsUI"
+            id="com.zeus.thunderbolt.SettingsUI"
             displayName="Zeus Thunderbolt"/>
     </extensions>
 
     <applicationListeners>
-        <listener class="com.zeus.thunderbolt.listeners.MyApplicationActivationListener" topic="com.intellij.openapi.application.ApplicationActivationListener"/>
+        <listener class="com.zeus.thunderbolt.ZeusThunderbolt" topic="com.intellij.openapi.application.ApplicationActivationListener"/>
     </applicationListeners>
 </idea-plugin>
