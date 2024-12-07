@@ -13,6 +13,11 @@
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow factoryClass="org.jetbrains.plugins.template.toolWindow.MyToolWindowFactory" id="MyToolWindow"/>
         <projectService serviceImplementation="org.jetbrains.plugins.template.services.MyProjectService"/>
+        <applicationService serviceImplementation="org.jetbrains.plugins.template.settings.ThunderSettings"/>
+        <applicationConfigurable
+            instance="org.jetbrains.plugins.template.settings.ThunderSettingsConfigurable"
+            id="org.jetbrains.plugins.template.settings.ThunderSettingsConfigurable"
+            displayName="Zeus Thunderbolt"/>
     </extensions>
 
     <applicationListeners>

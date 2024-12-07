@@ -21,6 +21,7 @@ import kotlin.concurrent.thread
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
+import org.jetbrains.plugins.template.settings.ThunderSettings
 
 @Service(Service.Level.PROJECT)
 class MyProjectService(project: Project) {
@@ -47,20 +48,24 @@ class MyProjectService(project: Project) {
             ),
         )
 
-        private var currentTheme = -1
+        private var currentTheme = ThunderSettings.getInstance().themeIndex
 
         init {
             initPlugin()
         }
 
-        fun nextTheme() {
-            currentTheme = (currentTheme + 1) % colorThemes.size
+        fun setTheme(index: Int) {
+            currentTheme = index.coerceIn(-1, colorThemes.lastIndex)
+            ThunderSettings.getInstance().themeIndex = currentTheme
         }
 
-        fun getCurrentThemeColors(): List<Color> = colorThemes[currentTheme]
+        fun getCurrentThemeIndex() = currentTheme
+
+        fun getCurrentThemeColors(): List<Color> = 
+            if (currentTheme >= 0) colorThemes[currentTheme]
+            else emptyList()
 
         private fun initPlugin() {
-            nextTheme()
             val editorFactory = EditorFactory.getInstance()
             val editors = mutableListOf<Editor>()
             val elements = Collections.synchronizedList(mutableListOf<PhysicsElement>())
