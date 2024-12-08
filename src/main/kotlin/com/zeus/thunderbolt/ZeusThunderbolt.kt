@@ -42,7 +42,80 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
     enum class Theme(val colors: List<Color>) {
         None(emptyList()),
-        Winter(listOf(
+        NorthernLights(listOf(
+            Color(0, 255, 127),    // Spring Green
+            Color(64, 224, 208),   // Turquoise
+            Color(0, 191, 255),    // Deep Sky Blue
+            Color(138, 43, 226),   // Blue Violet
+            Color(75, 0, 130),     // Indigo
+            Color(0, 250, 154)     // Medium Spring Green
+        )),
+        CyberPunk(listOf(
+            Color(255, 0, 128),    // Hot Pink
+            Color(0, 255, 255),    // Cyan
+            Color(255, 255, 0),    // Yellow
+            Color(128, 0, 255),    // Purple
+            Color(255, 128, 0),    // Orange
+            Color(0, 255, 128),    // Spring Green
+            Color(255, 0, 255)     // Magenta
+        )),
+        DeepOcean(listOf(
+            Color(0, 105, 148),    // Deep Blue
+            Color(0, 154, 184),    // Medium Blue
+            Color(64, 224, 208),   // Turquoise
+            Color(127, 255, 212),  // Aquamarine
+            Color(0, 206, 209),    // Dark Turquoise
+            Color(70, 130, 180),   // Steel Blue
+            Color(173, 216, 230)   // Light Blue
+        )),
+        Spectrum(listOf(
+            Color(255, 0, 0),      // Red
+            Color(255, 127, 0),    // Orange
+            Color(255, 255, 0),    // Yellow
+            Color(0, 255, 0),      // Green
+            Color(0, 0, 255),      // Blue
+            Color(75, 0, 130),     // Indigo
+            Color(148, 0, 211)     // Violet
+        )),
+        LavaFlow(listOf(
+            Color(255, 0, 0),      // Pure Red
+            Color(255, 69, 0),     // Red-Orange
+            Color(255, 140, 0),    // Dark Orange
+            Color(255, 165, 0),    // Orange
+            Color(255, 215, 0),    // Gold
+            Color(178, 34, 34),    // Firebrick
+            Color(139, 0, 0)       // Dark Red
+        )),
+        NeonCity(listOf(
+            Color(255, 0, 102),    // Hot Pink
+            Color(0, 255, 255),    // Cyan
+            Color(255, 255, 0),    // Yellow
+            Color(0, 255, 0),      // Lime
+            Color(255, 0, 255),    // Magenta
+            Color(255, 165, 0),    // Orange
+            Color(0, 255, 127),    // Spring Green
+            Color(148, 0, 211)     // Violet
+        )),
+        Twilight(listOf(
+            Color(25, 25, 112),    // Midnight Blue
+            Color(138, 43, 226),   // Blue Violet
+            Color(216, 191, 216),  // Thistle
+            Color(221, 160, 221),  // Plum
+            Color(148, 0, 211),    // Dark Violet
+            Color(75, 0, 130),     // Indigo
+            Color(106, 90, 205)    // Slate Blue
+        )),
+        VaporWave(listOf(
+            Color(255, 111, 255),  // Pink
+            Color(0, 255, 255),    // Cyan
+            Color(111, 111, 255),  // Light Blue
+            Color(255, 111, 111),  // Light Red
+            Color(111, 255, 111),  // Light Green
+            Color(255, 182, 193),  // Light Pink
+            Color(255, 192, 203),  // Pink
+            Color(0, 191, 255)     // Deep Sky Blue
+        )),
+        Ice(listOf(
             Color(66, 197, 255),   // Cyan
             Color(125, 249, 255),  // Light blue
             Color(195, 255, 255)   // White blue
@@ -76,7 +149,47 @@ object ZeusThunderbolt : ApplicationActivationListener {
             Color(0, 0, 0),        // Pure black
             Color(20, 20, 20),     // Dark gray
             Color(40, 40, 40)      // Medium gray
-        ))
+        )),
+        BlackAndWhite(listOf(
+            Color(0, 0, 0),        // Black
+            Color(255, 255, 255),  // White
+            Color(128, 128, 128)   // Gray
+        )),
+        Matrix(listOf(
+            Color(0, 255, 0),      // Bright Green
+            Color(0, 200, 0),      // Medium Green
+            Color(0, 150, 0)       // Dark Green
+        )),
+        Plasma(listOf(
+            Color(255, 0, 255),    // Magenta
+            Color(128, 0, 255),    // Purple
+            Color(64, 0, 255)      // Blue-Purple
+        )),
+        Volcano(listOf(
+            Color(255, 0, 0),      // Red
+            Color(255, 128, 0),    // Orange
+            Color(255, 255, 0)     // Yellow
+        )),
+        Arctic(listOf(
+            Color(200, 255, 255),  // Ice White
+            Color(150, 200, 255),  // Light Blue
+            Color(100, 150, 255)   // Arctic Blue
+        )),
+        Rainbow(listOf(
+            Color(255, 0, 0),      // Red
+            Color(0, 255, 0),      // Green
+            Color(0, 0, 255)       // Blue
+        )),
+        Galaxy(listOf(
+            Color(75, 0, 130),     // Indigo
+            Color(138, 43, 226),   // Blue Violet
+            Color(255, 192, 203)   // Pink
+        )),
+        Retro(listOf(
+            Color(255, 87, 51),    // Coral
+            Color(255, 189, 51),   // Golden
+            Color(51, 187, 255)    // Sky Blue
+        ));
     }
     private val themes = Theme.entries.toTypedArray()
 
@@ -526,12 +639,6 @@ object ZeusThunderbolt : ApplicationActivationListener {
             val currentTime = System.nanoTime()
             val dt = ((currentTime - lastFrameTime) / 1_000_000_000.0f).coerceAtMost(0.032f) // Cap at ~30 FPS
             lastFrameTime = currentTime
-
-            // Culling check - if particle is too far from view, mark as dead
-            if (x < -1000 || x > 3000 || y < -1000 || y > 3000) {
-                isDead = true
-                return
-            }
 
             // Add current position to trail
             trail.add(Point2D.Float(x, y))
