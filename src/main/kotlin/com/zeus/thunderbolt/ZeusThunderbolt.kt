@@ -22,199 +22,58 @@ import java.awt.geom.CubicCurve2D
 import java.util.*
 import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.JComponent
-import kotlin.concurrent.thread
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CopyOnWriteArrayList
+import kotlinx.coroutines.*
 
 object ZeusThunderbolt : ApplicationActivationListener {
+
+    private const val TARGET_FPS = 60
+    private const val FRAME_TIME_NS = 1_000_000_000L / TARGET_FPS
+    private const val maxParticles = 2500
+    private const val maxChainParticles = 30
+    private const val maxParticlePoolSize = 3000
+    private val coroutineScope = CoroutineScope(Dispatchers.Default)
+    private var lastFrameTime = System.nanoTime()
+    private var dt = 0f
+    private val particlePool = ConcurrentLinkedQueue<Particle>()
+    private val elements = CopyOnWriteArrayList<PhysicsElement>()
+    private val settings = ThunderSettings.getInstance()
+    private val random = Random()
+    private val themes = Theme.entries.toTypedArray()
+    private var currentTheme = Theme.None
+
+    private fun trimParticles() {
+        if (elements.size > maxParticles) {
+            elements.subList(0, elements.size - maxParticles).clear()
+        }
+    }
 
     override fun applicationActivated(ideFrame: IdeFrame) {
         ZeusThunderbolt
     }
 
-    private val settings = ThunderSettings.getInstance()
-
-    private val maxParticles = 2500
-    private val maxChainParticles = 30
-    private val maxPoolSize = 3000
-    private val particlePool = ConcurrentLinkedQueue<Particle>()
-
-    enum class Theme(val colors: List<Color>) {
-        None(emptyList()),
-        NorthernLights(listOf(
-            Color(0, 255, 127),    // Spring Green
-            Color(64, 224, 208),   // Turquoise
-            Color(0, 191, 255),    // Deep Sky Blue
-            Color(138, 43, 226),   // Blue Violet
-            Color(75, 0, 130),     // Indigo
-            Color(0, 250, 154)     // Medium Spring Green
-        )),
-        CyberPunk(listOf(
-            Color(255, 0, 128),    // Hot Pink
-            Color(0, 255, 255),    // Cyan
-            Color(255, 255, 0),    // Yellow
-            Color(128, 0, 255),    // Purple
-            Color(255, 128, 0),    // Orange
-            Color(0, 255, 128),    // Spring Green
-            Color(255, 0, 255)     // Magenta
-        )),
-        DeepOcean(listOf(
-            Color(0, 105, 148),    // Deep Blue
-            Color(0, 154, 184),    // Medium Blue
-            Color(64, 224, 208),   // Turquoise
-            Color(127, 255, 212),  // Aquamarine
-            Color(0, 206, 209),    // Dark Turquoise
-            Color(70, 130, 180),   // Steel Blue
-            Color(173, 216, 230)   // Light Blue
-        )),
-        Spectrum(listOf(
-            Color(255, 0, 0),      // Red
-            Color(255, 127, 0),    // Orange
-            Color(255, 255, 0),    // Yellow
-            Color(0, 255, 0),      // Green
-            Color(0, 0, 255),      // Blue
-            Color(75, 0, 130),     // Indigo
-            Color(148, 0, 211)     // Violet
-        )),
-        LavaFlow(listOf(
-            Color(255, 0, 0),      // Pure Red
-            Color(255, 69, 0),     // Red-Orange
-            Color(255, 140, 0),    // Dark Orange
-            Color(255, 165, 0),    // Orange
-            Color(255, 215, 0),    // Gold
-            Color(178, 34, 34),    // Firebrick
-            Color(139, 0, 0)       // Dark Red
-        )),
-        NeonCity(listOf(
-            Color(255, 0, 102),    // Hot Pink
-            Color(0, 255, 255),    // Cyan
-            Color(255, 255, 0),    // Yellow
-            Color(0, 255, 0),      // Lime
-            Color(255, 0, 255),    // Magenta
-            Color(255, 165, 0),    // Orange
-            Color(0, 255, 127),    // Spring Green
-            Color(148, 0, 211)     // Violet
-        )),
-        Twilight(listOf(
-            Color(25, 25, 112),    // Midnight Blue
-            Color(138, 43, 226),   // Blue Violet
-            Color(216, 191, 216),  // Thistle
-            Color(221, 160, 221),  // Plum
-            Color(148, 0, 211),    // Dark Violet
-            Color(75, 0, 130),     // Indigo
-            Color(106, 90, 205)    // Slate Blue
-        )),
-        VaporWave(listOf(
-            Color(255, 111, 255),  // Pink
-            Color(0, 255, 255),    // Cyan
-            Color(111, 111, 255),  // Light Blue
-            Color(255, 111, 111),  // Light Red
-            Color(111, 255, 111),  // Light Green
-            Color(255, 182, 193),  // Light Pink
-            Color(255, 192, 203),  // Pink
-            Color(0, 191, 255)     // Deep Sky Blue
-        )),
-        Ice(listOf(
-            Color(66, 197, 255),   // Cyan
-            Color(125, 249, 255),  // Light blue
-            Color(195, 255, 255)   // White blue
-        )),
-        Autumn(listOf(
-            Color(255, 89, 0),     // Orange
-            Color(255, 159, 0),    // Light orange
-            Color(255, 223, 97)    // Yellow
-        )),
-        Forest(listOf(
-            Color(34, 139, 34),    // Forest Green
-            Color(50, 205, 50),    // Lime Green
-            Color(144, 238, 144)   // Light Green
-        )),
-        Ocean(listOf(
-            Color(0, 119, 190),    // Deep Blue
-            Color(0, 191, 255),    // Deep Sky Blue
-            Color(135, 206, 235)   // Sky Blue
-        )),
-        Sunset(listOf(
-            Color(255, 69, 0),     // Red-Orange
-            Color(255, 140, 0),    // Dark Orange
-            Color(255, 0, 255)     // Magenta
-        )),
-        Neon(listOf(
-            Color(255, 0, 102),    // Hot Pink
-            Color(0, 255, 255),    // Cyan
-            Color(255, 255, 0)     // Yellow
-        )),
-        BlackSnow(listOf(
-            Color(0, 0, 0),        // Pure black
-            Color(20, 20, 20),     // Dark gray
-            Color(40, 40, 40)      // Medium gray
-        )),
-        BlackAndWhite(listOf(
-            Color(0, 0, 0),        // Black
-            Color(255, 255, 255),  // White
-            Color(128, 128, 128)   // Gray
-        )),
-        Matrix(listOf(
-            Color(0, 255, 0),      // Bright Green
-            Color(0, 200, 0),      // Medium Green
-            Color(0, 150, 0)       // Dark Green
-        )),
-        Plasma(listOf(
-            Color(255, 0, 255),    // Magenta
-            Color(128, 0, 255),    // Purple
-            Color(64, 0, 255)      // Blue-Purple
-        )),
-        Volcano(listOf(
-            Color(255, 0, 0),      // Red
-            Color(255, 128, 0),    // Orange
-            Color(255, 255, 0)     // Yellow
-        )),
-        Arctic(listOf(
-            Color(200, 255, 255),  // Ice White
-            Color(150, 200, 255),  // Light Blue
-            Color(100, 150, 255)   // Arctic Blue
-        )),
-        Rainbow(listOf(
-            Color(255, 0, 0),      // Red
-            Color(0, 255, 0),      // Green
-            Color(0, 0, 255)       // Blue
-        )),
-        Galaxy(listOf(
-            Color(75, 0, 130),     // Indigo
-            Color(138, 43, 226),   // Blue Violet
-            Color(255, 192, 203)   // Pink
-        )),
-        Retro(listOf(
-            Color(255, 87, 51),    // Coral
-            Color(255, 189, 51),   // Golden
-            Color(51, 187, 255)    // Sky Blue
-        ));
+    init {
+        initPlugin()
     }
-    private val themes = Theme.entries.toTypedArray()
-
-    private var currentTheme = Theme.None
 
     fun setTheme(index: Int) {
         currentTheme = themes.getOrElse(index) { Theme.None }
         settings.themeIndex = index
     }
 
-    fun getCurrentThemeIndex(): Int = themes.indexOf(currentTheme)
+    fun getCurrentThemeIndex() = themes.indexOf(currentTheme)
 
-    fun getCurrentThemeColors(): List<Color> = currentTheme.colors
+    fun getCurrentThemeColors() = currentTheme.colors
 
     fun getThemeNames() = themes.map { it.name }
-
-    init {
-        initPlugin()
-    }
 
     private fun initPlugin() {
         val editorFactory = EditorFactory.getInstance()
         val editors = mutableListOf<Editor>()
-        val elements = Collections.synchronizedList(mutableListOf<PhysicsElement>())
         val lastPositions = mutableMapOf<Caret, Point>()
         val currEditorObj = AtomicInteger(0)
         val trackCarets = lambda@{ event: CaretEvent ->
@@ -241,7 +100,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
                     )
                 }
             }
-            trimParticles(elements)
+            trimParticles()
             lastPositions[caret] = caret.getPoint()
         }
         val caretListener = object : CaretListener {
@@ -287,42 +146,51 @@ object ZeusThunderbolt : ApplicationActivationListener {
                 if (System.identityHashCode(editor) != currEditorObj.get()) return
                 val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
                 val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
-                val elementsCopy = elements.toList()
-                for (e in elementsCopy) {
+                for (e in elements) {
                     val dx = e.x0 - scrollOffsetX
                     val dy = e.y0 - scrollOffsetY
                     g.translate(dx.toInt(), dy.toInt())
-                    e.render(g, elementsCopy)
+                    e.render(g)
                     g.translate(-dx.toInt(), -dy.toInt())
                 }
             }
         }
 
         val containers = mutableMapOf<Editor, ElementsContainer>()
-        val renderThread = thread {
-            var frameCount = 0
-            while (!Thread.interrupted()) {
-                frameCount++
-                val elementsCopy = elements.toList()
-                // Update all elements
-                for (e in elementsCopy) {
-                    e.update(elementsCopy)
-                }
-                // Clean up dead elements in a separate pass
-                elementsCopy
-                    .filter { it is ChainParticle && it.isDead || it is Particle && it.isDead }
-                    .forEach { deadElement ->
-                        if (deadElement is Particle) {
-                            deadElement.reset()
-                            putToPool(deadElement)
+        val renderJob = coroutineScope.launch {
+            while (isActive) {
+                val currentTime = System.nanoTime()
+                dt = ((currentTime - lastFrameTime) / 1_000_000_000f).coerceAtMost(0.032f)
+                lastFrameTime = currentTime
+
+                val deadElements = HashSet<PhysicsElement>()
+                val deadParticles = mutableListOf<Particle>()
+
+                for (e in elements) {
+                    e.update()
+                    if (e.isDead) {
+                        deadElements += e
+                        if (e is Particle) {
+                            deadParticles += e
                         }
-                        elements.remove(deadElement)
                     }
-                containers.values.forEach { it.repaint() }
-                try {
-                    Thread.sleep(16) // ~60
-                } catch (e: InterruptedException) {
-                    break
+                }
+
+                // Clean up in batch
+                elements.removeAll(deadElements)
+                if (particlePool.size < maxParticlePoolSize)
+                    particlePool.addAll(deadParticles)
+
+                // repaint only visible containers
+                for (c in containers.values)
+                    if (System.identityHashCode(c.editor) == currEditorObj.get() && c.isShowing && c.isVisible)
+                        c.repaint()
+
+                // next frame delay
+                val frameTime = System.nanoTime() - currentTime
+                val remainingTime = (FRAME_TIME_NS - frameTime) / 1_000_000 // Convert to ms
+                if (remainingTime > 0) {
+                    delay(remainingTime)
                 }
             }
         }
@@ -356,8 +224,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
         val clearOnDispose = {
             // onDispose
             editors.clear()
-            renderThread.interrupt()
-            renderThread.join()
+            renderJob.cancel()
         }
         Disposer.register(app, clearOnDispose)
         editorFactory.addEditorFactoryListener(factoryListener, app)
@@ -371,20 +238,6 @@ object ZeusThunderbolt : ApplicationActivationListener {
                 }
             }
         typedAction.setupRawHandler(typedActionHandler)
-    }
-
-    private fun trimParticles(elements: MutableList<PhysicsElement>) {
-        if (elements.size > maxParticles) {
-            elements.subList(0, elements.size - maxParticles).clear()
-        }
-    }
-
-    private fun getParticleFromPool(): Particle? = particlePool.poll()
-
-    private fun putToPool(particle: Particle) {
-        if (particlePool.size < maxPoolSize) {
-            particlePool.offer(particle)
-        }
     }
 
     private fun Editor.isActualEditor(): Boolean =
@@ -404,8 +257,10 @@ object ZeusThunderbolt : ApplicationActivationListener {
         var x: Float
         var y: Float
         var chainStrength: Float
-        fun update(elements: List<PhysicsElement>)
-        fun render(g: Graphics, elements: List<PhysicsElement>)
+        var isDead: Boolean
+        fun update()
+        fun render(g: Graphics)
+        fun reset()
     }
 
     private fun generateChainParticles(
@@ -444,24 +299,26 @@ object ZeusThunderbolt : ApplicationActivationListener {
         }
     }
 
-    private fun generateParticles(x0: Float, y0: Float, point: Point, count: Int = 10) = (1..count).mapNotNull {
-        getParticleFromPool()?.apply {
-            this.x0 = x0
-            this.y0 = y0
-            this.x = point.x.toFloat()
-            this.y = point.y.toFloat()
-        } ?: Particle(
-            x0 = x0, y0 = y0,
-            x = point.x.toFloat(),
-            y = point.y.toFloat(),
-            size = (2..4).random().toFloat(),
-            color = Color.getHSBColor(Math.random().toFloat(), 0.8f, 1f),
-            force = Force(
-                (100..200).random().toFloat() * cos(Math.random() * 2 * Math.PI).toFloat(),
-                (100..200).random().toFloat() * sin(Math.random() * 2 * Math.PI).toFloat()
+    private fun generateParticles(x0: Float, y0: Float, point: Point, count: Int = 10): List<Particle> =
+        (1..count).map {
+            particlePool.poll()?.apply {
+                this.x0 = x0
+                this.y0 = y0
+                this.x = point.x.toFloat()
+                this.y = point.y.toFloat()
+                reset()
+            } ?: Particle(
+                x0 = x0, y0 = y0,
+                x = point.x.toFloat(),
+                y = point.y.toFloat(),
+                size = random.nextInt(3) + 2f,
+                color = Color.getHSBColor(random.nextFloat(), 0.8f, 1f),
+                force = Force(
+                    (100 + random.nextInt(101)) * cos(random.nextDouble() * 2 * Math.PI).toFloat(),
+                    (100 + random.nextInt(101)) * sin(random.nextDouble() * 2 * Math.PI).toFloat()
+                )
             )
-        )
-    }
+        }
 
     data class Force(var x: Float, var y: Float)
 
@@ -484,13 +341,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
         var originalY: Float = y,
         var stayInPlace: Boolean = true
     ) : PhysicsElement {
-        private var lastTs = System.currentTimeMillis()
-        var isDead = false
+        override var isDead: Boolean = false
 
-        override fun update(elements: List<PhysicsElement>) {
-            val ts = System.currentTimeMillis()
-            val dt = (ts - lastTs) / 1000f
-            lastTs = ts
+        override fun update() {
 
             // Electric vibration
             vibePhase += vibeFrequency * dt
@@ -519,9 +372,8 @@ object ZeusThunderbolt : ApplicationActivationListener {
             force.y *= 0.95f
 
             // Chain behavior
-            elements
-                .filter { it != this && it.chainStrength > 0 }
-                .forEach { other ->
+            for (other in elements)
+                if (other != this && other.chainStrength > 0) {
                     val dx = other.x - x
                     val dy = other.y - y
                     val distance = sqrt((dx * dx + dy * dy).toDouble()).toFloat()
@@ -536,7 +388,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
             if (lifetime <= 0) isDead = true
         }
 
-        override fun render(g: Graphics, elements: List<PhysicsElement>) {
+        override fun render(g: Graphics) {
             val g2d = g.create() as? Graphics2D ?: return
             // Only use antialiasing for visible chains
             if (lifetime > 0.2f) {
@@ -545,28 +397,27 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
             // Draw connections to nearby particles
             g2d.stroke = BasicStroke(size / 3f)
-            val nearby = elements
-                .filter { it != this && it.chainStrength > 0 }
-                .filter { other ->
-                    val dx = other.x - x
-                    val dy = other.y - y
-                    sqrt((dx * dx + dy * dy).toDouble()) < maxChainDistance
+
+            for (other in elements) {
+                val dx = other.x - x
+                val dy = other.y - y
+                if (other != this && other.chainStrength > 0 &&
+                    sqrt(dx * dx + dy * dy) < maxChainDistance
+                ) {
+                    val alpha = (255 * (lifetime / 3f) * chainStrength).toInt().coerceIn(0, 255)
+                    g2d.color = Color(color.red, color.green, color.blue, alpha)
+
+                    // Create bezier curve
+                    val midX = (x + other.x) / 2
+                    val midY = (y + other.y) / 2
+                    val curve = CubicCurve2D.Float(
+                        x, y,
+                        midX - (other.y - y) / 4, midY + (other.x - x) / 4,
+                        midX + (other.y - y) / 4, midY - (other.x - x) / 4,
+                        other.x, other.y
+                    )
+                    g2d.draw(curve)
                 }
-
-            nearby.forEach { other ->
-                val alpha = (255 * (lifetime / 3f) * chainStrength).toInt().coerceIn(0, 255)
-                g2d.color = Color(color.red, color.green, color.blue, alpha)
-
-                // Create bezier curve
-                val midX = (x + other.x) / 2
-                val midY = (y + other.y) / 2
-                val curve = CubicCurve2D.Float(
-                    x, y,
-                    midX - (other.y - y) / 4, midY + (other.x - x) / 4,
-                    midX + (other.y - y) / 4, midY - (other.x - x) / 4,
-                    other.x, other.y
-                )
-                g2d.draw(curve)
             }
 
             // Draw particle
@@ -583,6 +434,8 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
             g2d.dispose()
         }
+
+        override fun reset() {}
     }
 
     data class Particle(
@@ -596,7 +449,6 @@ object ZeusThunderbolt : ApplicationActivationListener {
         var friction: Float = 0.95f,
         var lifetime: Float = 2f,
         var glowRadius: Float = size * 4f,
-        var rotation: Float = (Math.random() * Math.PI * 2).toFloat(),
         var rotationSpeed: Float = (-2..2).random().toFloat(),
         var wobblePhase: Float = (Math.random() * Math.PI * 2).toFloat(),
         var wobbleFrequency: Float = (2..5).random().toFloat(),
@@ -612,15 +464,14 @@ object ZeusThunderbolt : ApplicationActivationListener {
         override var chainStrength: Float = 0f,  // Regular particles don't form chains
         var isDarkGlow: Boolean = false
     ) : PhysicsElement {
-        var isDead = false
+        override var isDead: Boolean = false
         private val trail: Array<Point2D.Float> = Array(10) { Point2D.Float() }
         private var trailIndex: Int = -1
         private var trailSize: Int = 0
-        private var lastFrameTime = System.nanoTime()
         private var cachedColor: Color? = null
         private var cachedLifeProgress = -1f
 
-        fun reset() {
+        override fun reset() {
             isDead = false
             lifetime = 2f
             size = (2..4).random().toFloat()
@@ -639,6 +490,8 @@ object ZeusThunderbolt : ApplicationActivationListener {
                 (color.green + (-20..20).random()).coerceIn(0, 255),
                 (color.blue + (-20..20).random()).coerceIn(0, 255)
             )
+            wobbleFrequency = (2..5).random().toFloat()
+            wobbleAmplitude = (20..40).random().toFloat()
         }
 
         private fun getInterpolatedColor(lifeProgress: Float): Color {
@@ -654,10 +507,12 @@ object ZeusThunderbolt : ApplicationActivationListener {
             return cachedColor!!
         }
 
-        override fun update(elements: List<PhysicsElement>) {
-            val currentTime = System.nanoTime()
-            val dt = ((currentTime - lastFrameTime) / 1_000_000_000.0f).coerceAtMost(0.032f) // Cap at ~30 FPS
-            lastFrameTime = currentTime
+        override fun update() {
+            lifetime -= dt
+            if (lifetime <= 0) {
+                isDead = true
+                return
+            }
 
             // Add current position to trail
             trailIndex = (trailIndex + 1) % trail.size
@@ -666,7 +521,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
             // Update pulse
             pulsePhase += pulseFrequency * dt
-            val pulseFactor = 1f + 0.2f * sin(pulsePhase.toDouble()).toFloat()
+            val pulseFactor = 1f + 0.2f * sin(pulsePhase)
             glowRadius = size * 4f * pulseFactor
 
             // Add random wind force
@@ -677,13 +532,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
             // Sine wave motion
             wobblePhase += wobbleFrequency * dt
-            val wobbleForce = sin(wobblePhase.toDouble()) * wobbleAmplitude
-            force.x += wobbleForce.toFloat() * dt
+            val wobbleForce = sin(wobblePhase) * wobbleAmplitude
+            force.x += wobbleForce * dt
 
-            // Update rotation
-            rotation += rotationSpeed * dt
-
-            // Original physics
             x += force.x * dt
             y += force.y * dt
 
@@ -695,20 +546,12 @@ object ZeusThunderbolt : ApplicationActivationListener {
             force.x *= randomFriction
             force.y *= randomFriction
 
-            // Update lifetime
-            lifetime -= dt
-            if (lifetime <= 0) isDead = true
-
-            // Interpolate between colors based on lifetime
-            val lifeProgress = (lifetime / 2f).coerceIn(0f, 1f)
-            color = getInterpolatedColor(lifeProgress)
-
             // Interact with nearby particles
             for (other in elements) {
                 if (other != this) {
                     val dx = other.x - x
                     val dy = other.y - y
-                    val distance = sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+                    val distance = sqrt(dx * dx + dy * dy)
                     if (distance < 50f) {
                         val repulsion = 5f / (distance + 1f)
                         force.x -= dx * repulsion * dt
@@ -718,7 +561,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
             }
 
             // Apply force field effect
-            applyForceField(this, dt)
+            applyForceField(this)
 
             // Apply theme colors
             if (currentTheme != Theme.None && 1.6f < lifetime && lifetime < 1.7f) { // Only for new particles
@@ -726,10 +569,13 @@ object ZeusThunderbolt : ApplicationActivationListener {
                 startColor = themeColors.random()
                 endColor = themeColors.random()
                 color = startColor
+            } else {
+                val lifeProgress = (lifetime / 2f).coerceIn(0f, 1f)
+                color = getInterpolatedColor(lifeProgress)
             }
         }
 
-        override fun render(g: Graphics, elements: List<PhysicsElement>) {
+        override fun render(g: Graphics) {
             val g2d = g.create() as? Graphics2D ?: return
             // Enable better quality rendering only for larger particles
             if (size > 4) {
@@ -744,16 +590,16 @@ object ZeusThunderbolt : ApplicationActivationListener {
                 g2d.stroke = BasicStroke(size / 4f)
                 val path = GeneralPath()
                 var i = trailIndex
-                path.moveTo(trail[i].x.toDouble(), trail[i].y.toDouble())
+                path.moveTo(trail[i].x, trail[i].y)
                 repeat(trailSize) {
                     val t = trail[(i-- + trail.size) % trail.size]
-                    path.lineTo(t.x.toDouble(), t.y.toDouble())
+                    path.lineTo(t.x, t.y)
                 }
                 g2d.draw(path)
             }
 
             // Existing render code with size pulsing
-            val pulseFactor = 1f + 0.2f * sin(pulsePhase.toDouble()).toFloat()
+            val pulseFactor = 1f + 0.2f * sin(pulsePhase)
             val currentSize = size * pulseFactor
             val currentGlowRadius = glowRadius * pulseFactor
 
@@ -804,17 +650,17 @@ object ZeusThunderbolt : ApplicationActivationListener {
     }
 
     // Add force field effect
-    fun applyForceField(particle: Particle, dt: Float) {
+    fun applyForceField(particle: Particle) {
         val fieldStrength = 50f
         val fieldFrequency = 0.01f
         val fieldPhase = System.currentTimeMillis() * 0.001f
 
         // Create a flowing force field effect
-        val forceX = sin((particle.y * fieldFrequency + fieldPhase).toDouble()) * fieldStrength
-        val forceY = cos((particle.x * fieldFrequency + fieldPhase).toDouble()) * fieldStrength
+        val forceX = sin(particle.y * fieldFrequency + fieldPhase) * fieldStrength
+        val forceY = cos(particle.x * fieldFrequency + fieldPhase) * fieldStrength
 
-        particle.force.x += forceX.toFloat() * dt
-        particle.force.y += forceY.toFloat() * dt
+        particle.force.x += forceX * dt
+        particle.force.y += forceY * dt
     }
 }
 
@@ -835,4 +681,156 @@ class ThunderSettings : PersistentStateComponent<ThunderSettings> {
     companion object {
         fun getInstance(): ThunderSettings = service()
     }
+}
+
+enum class Theme(vararg val colors: Color) {
+    None,
+    NorthernLights(
+        Color(0, 255, 127),    // Spring Green
+        Color(64, 224, 208),   // Turquoise
+        Color(0, 191, 255),    // Deep Sky Blue
+        Color(138, 43, 226),   // Blue Violet
+        Color(75, 0, 130),     // Indigo
+        Color(0, 250, 154)     // Medium Spring Green
+    ),
+    CyberPunk(
+        Color(255, 0, 128),    // Hot Pink
+        Color(0, 255, 255),    // Cyan
+        Color(255, 255, 0),    // Yellow
+        Color(128, 0, 255),    // Purple
+        Color(255, 128, 0),    // Orange
+        Color(0, 255, 128),    // Spring Green
+        Color(255, 0, 255)     // Magenta
+    ),
+    DeepOcean(
+        Color(0, 105, 148),    // Deep Blue
+        Color(0, 154, 184),    // Medium Blue
+        Color(64, 224, 208),   // Turquoise
+        Color(127, 255, 212),  // Aquamarine
+        Color(0, 206, 209),    // Dark Turquoise
+        Color(70, 130, 180),   // Steel Blue
+        Color(173, 216, 230)   // Light Blue
+    ),
+    Spectrum(
+        Color(255, 0, 0),      // Red
+        Color(255, 127, 0),    // Orange
+        Color(255, 255, 0),    // Yellow
+        Color(0, 255, 0),      // Green
+        Color(0, 0, 255),      // Blue
+        Color(75, 0, 130),     // Indigo
+        Color(148, 0, 211)     // Violet
+    ),
+    LavaFlow(
+        Color(255, 0, 0),      // Pure Red
+        Color(255, 69, 0),     // Red-Orange
+        Color(255, 140, 0),    // Dark Orange
+        Color(255, 165, 0),    // Orange
+        Color(255, 215, 0),    // Gold
+        Color(178, 34, 34),    // Firebrick
+        Color(139, 0, 0)       // Dark Red
+    ),
+    NeonCity(
+        Color(255, 0, 102),    // Hot Pink
+        Color(0, 255, 255),    // Cyan
+        Color(255, 255, 0),    // Yellow
+        Color(0, 255, 0),      // Lime
+        Color(255, 0, 255),    // Magenta
+        Color(255, 165, 0),    // Orange
+        Color(0, 255, 127),    // Spring Green
+        Color(148, 0, 211)     // Violet
+    ),
+    Twilight(
+        Color(25, 25, 112),    // Midnight Blue
+        Color(138, 43, 226),   // Blue Violet
+        Color(216, 191, 216),  // Thistle
+        Color(221, 160, 221),  // Plum
+        Color(148, 0, 211),    // Dark Violet
+        Color(75, 0, 130),     // Indigo
+        Color(106, 90, 205)    // Slate Blue
+    ),
+    VaporWave(
+        Color(255, 111, 255),  // Pink
+        Color(0, 255, 255),    // Cyan
+        Color(111, 111, 255),  // Light Blue
+        Color(255, 111, 111),  // Light Red
+        Color(111, 255, 111),  // Light Green
+        Color(255, 182, 193),  // Light Pink
+        Color(255, 192, 203),  // Pink
+        Color(0, 191, 255)     // Deep Sky Blue
+    ),
+    Ice(
+        Color(66, 197, 255),   // Cyan
+        Color(125, 249, 255),  // Light blue
+        Color(195, 255, 255)   // White blue
+    ),
+    Autumn(
+        Color(255, 89, 0),     // Orange
+        Color(255, 159, 0),    // Light orange
+        Color(255, 223, 97)    // Yellow
+    ),
+    Forest(
+        Color(34, 139, 34),    // Forest Green
+        Color(50, 205, 50),    // Lime Green
+        Color(144, 238, 144)   // Light Green
+    ),
+    Ocean(
+        Color(0, 119, 190),    // Deep Blue
+        Color(0, 191, 255),    // Deep Sky Blue
+        Color(135, 206, 235)   // Sky Blue
+    ),
+    Sunset(
+        Color(255, 69, 0),     // Red-Orange
+        Color(255, 140, 0),    // Dark Orange
+        Color(255, 0, 255)     // Magenta
+    ),
+    Neon(
+        Color(255, 0, 102),    // Hot Pink
+        Color(0, 255, 255),    // Cyan
+        Color(255, 255, 0)     // Yellow
+    ),
+    BlackSnow(
+        Color(0, 0, 0),        // Pure black
+        Color(20, 20, 20),     // Dark gray
+        Color(40, 40, 40)      // Medium gray
+    ),
+    BlackAndWhite(
+        Color(0, 0, 0),        // Black
+        Color(255, 255, 255),  // White
+        Color(128, 128, 128)   // Gray
+    ),
+    Matrix(
+        Color(0, 255, 0),      // Bright Green
+        Color(0, 200, 0),      // Medium Green
+        Color(0, 150, 0)       // Dark Green
+    ),
+    Plasma(
+        Color(255, 0, 255),    // Magenta
+        Color(128, 0, 255),    // Purple
+        Color(64, 0, 255)      // Blue-Purple
+    ),
+    Volcano(
+        Color(255, 0, 0),      // Red
+        Color(255, 128, 0),    // Orange
+        Color(255, 255, 0)     // Yellow
+    ),
+    Arctic(
+        Color(200, 255, 255),  // Ice White
+        Color(150, 200, 255),  // Light Blue
+        Color(100, 150, 255)   // Arctic Blue
+    ),
+    Rainbow(
+        Color(255, 0, 0),      // Red
+        Color(0, 255, 0),      // Green
+        Color(0, 0, 255)       // Blue
+    ),
+    Galaxy(
+        Color(75, 0, 130),     // Indigo
+        Color(138, 43, 226),   // Blue Violet
+        Color(255, 192, 203)   // Pink
+    ),
+    Retro(
+        Color(255, 87, 51),    // Coral
+        Color(255, 189, 51),   // Golden
+        Color(51, 187, 255)    // Sky Blue
+    );
 }
