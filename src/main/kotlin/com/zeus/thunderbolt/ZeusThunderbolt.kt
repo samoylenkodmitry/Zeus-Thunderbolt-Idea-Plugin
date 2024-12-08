@@ -26,6 +26,7 @@ import kotlin.concurrent.thread
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
+import java.util.concurrent.ConcurrentLinkedQueue
 
 object ZeusThunderbolt : ApplicationActivationListener {
 
@@ -37,8 +38,8 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
     private val maxParticles = 2500
     private val maxChainParticles = 30
-    private val particlePool = Collections.synchronizedList(mutableListOf<Particle>())
     private val maxPoolSize = 3000
+    private val particlePool = ConcurrentLinkedQueue<Particle>()
 
     enum class Theme(val colors: List<Color>) {
         None(emptyList()),
@@ -378,11 +379,11 @@ object ZeusThunderbolt : ApplicationActivationListener {
         }
     }
 
-    private fun getParticleFromPool(): Particle? = particlePool.removeLastOrNull()
+    private fun getParticleFromPool(): Particle? = particlePool.poll()
 
     private fun putToPool(particle: Particle) {
         if (particlePool.size < maxPoolSize) {
-            particlePool.add(particle)
+            particlePool.offer(particle)
         }
     }
 
@@ -536,7 +537,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
         }
 
         override fun render(g: Graphics, elements: List<PhysicsElement>) {
-            val g2d = g.create() as Graphics2D
+            val g2d = g.create() as? Graphics2D ?: return
             // Only use antialiasing for visible chains
             if (lifetime > 0.2f) {
                 g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
@@ -608,12 +609,16 @@ object ZeusThunderbolt : ApplicationActivationListener {
         ),
         var pulsePhase: Float = (Math.random() * Math.PI * 2).toFloat(),
         var pulseFrequency: Float = (3..6).random().toFloat(),
-        var trail: MutableList<Point2D.Float> = mutableListOf(),
         override var chainStrength: Float = 0f,  // Regular particles don't form chains
         var isDarkGlow: Boolean = false
     ) : PhysicsElement {
         var isDead = false
+        private val trail: Array<Point2D.Float> = Array(10) { Point2D.Float() }
+        private var trailIndex: Int = -1
+        private var trailSize: Int = 0
         private var lastFrameTime = System.nanoTime()
+        private var cachedColor: Color? = null
+        private var cachedLifeProgress = -1f
 
         fun reset() {
             isDead = false
@@ -626,7 +631,8 @@ object ZeusThunderbolt : ApplicationActivationListener {
             )
             pulsePhase = (Math.random() * Math.PI * 2).toFloat()
             pulseFrequency = (3..6).random().toFloat()
-            trail.clear()
+            trailIndex = -1
+            trailSize = 0
             startColor = color
             endColor = Color(
                 (color.red + (-20..20).random()).coerceIn(0, 255),
@@ -635,14 +641,28 @@ object ZeusThunderbolt : ApplicationActivationListener {
             )
         }
 
+        private fun getInterpolatedColor(lifeProgress: Float): Color {
+            if (lifeProgress != cachedLifeProgress) {
+                cachedColor = Color(
+                    (startColor.red * lifeProgress + endColor.red * (1 - lifeProgress)).toInt(),
+                    (startColor.green * lifeProgress + endColor.green * (1 - lifeProgress)).toInt(),
+                    (startColor.blue * lifeProgress + endColor.blue * (1 - lifeProgress)).toInt(),
+                    (255 * lifeProgress).toInt()
+                )
+                cachedLifeProgress = lifeProgress
+            }
+            return cachedColor!!
+        }
+
         override fun update(elements: List<PhysicsElement>) {
             val currentTime = System.nanoTime()
             val dt = ((currentTime - lastFrameTime) / 1_000_000_000.0f).coerceAtMost(0.032f) // Cap at ~30 FPS
             lastFrameTime = currentTime
 
             // Add current position to trail
-            trail.add(Point2D.Float(x, y))
-            if (trail.size > 10) trail.removeAt(0)
+            trailIndex = (trailIndex + 1) % trail.size
+            trail[trailIndex].setLocation(x, y)
+            trailSize = (trailSize + 1).coerceAtMost(trail.size)
 
             // Update pulse
             pulsePhase += pulseFrequency * dt
@@ -681,12 +701,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
             // Interpolate between colors based on lifetime
             val lifeProgress = (lifetime / 2f).coerceIn(0f, 1f)
-            color = Color(
-                (startColor.red * lifeProgress + endColor.red * (1 - lifeProgress)).toInt(),
-                (startColor.green * lifeProgress + endColor.green * (1 - lifeProgress)).toInt(),
-                (startColor.blue * lifeProgress + endColor.blue * (1 - lifeProgress)).toInt(),
-                (255 * lifeProgress).toInt()
-            )
+            color = getInterpolatedColor(lifeProgress)
 
             // Interact with nearby particles
             for (other in elements) {
@@ -715,24 +730,23 @@ object ZeusThunderbolt : ApplicationActivationListener {
         }
 
         override fun render(g: Graphics, elements: List<PhysicsElement>) {
-            val g2d = g.create() as Graphics2D
+            val g2d = g.create() as? Graphics2D ?: return
             // Enable better quality rendering only for larger particles
             if (size > 4) {
                 g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             }
 
             // Render trail
-            if (trail.size > 1) {
+            if (trailSize > 1) {
                 val trailColor =
                     Color(color.red, color.green, color.blue, (50 * (lifetime / 2f)).toInt().coerceIn(0, 255))
                 g2d.color = trailColor
                 g2d.stroke = BasicStroke(size / 4f)
                 val path = GeneralPath()
-                val trail0 = trail.getOrNull(0)
-                if (trail0 != null)
-                    path.moveTo(trail0.x.toDouble(), trail0.y.toDouble())
-                for (i in 1 until trail.size) {
-                    val t = trail.getOrNull(i) ?: continue
+                var i = trailIndex
+                path.moveTo(trail[i].x.toDouble(), trail[i].y.toDouble())
+                repeat(trailSize) {
+                    val t = trail[(i-- + trail.size) % trail.size]
                     path.lineTo(t.x.toDouble(), t.y.toDouble())
                 }
                 g2d.draw(path)
