@@ -13,3 +13,7 @@ Zeus Thunderbolt Inspired by PowerMode plugin. Each cursor change will cast flyi
 
 https://github.com/user-attachments/assets/8ea626c8-b110-4c7f-8ed5-4e0a98e06bd3
 
+
+
+https://github.com/user-attachments/assets/e24f17cb-ef22-4065-adeb-370770041138
+
