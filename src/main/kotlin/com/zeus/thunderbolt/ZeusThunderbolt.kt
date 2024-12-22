@@ -41,7 +41,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private var dt = 0f
     private val particlePool = ConcurrentLinkedQueue<Particle>()
     private val elements = CopyOnWriteArrayList<PhysicsElement>()
-    private val settings = ThunderSettings.getInstance()
+    private val settings: ThunderSettings get() = ThunderSettings.getInstance()
     private val random = Random()
     private val themes = Theme.entries.toTypedArray()
     private var currentTheme = Theme.None
@@ -72,6 +72,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
     fun getThemeNames() = themes.map { it.name }
 
     private fun initPlugin() {
+        setTheme(settings.themeIndex)
         val editorFactory = EditorFactory.getInstance()
         val editors = mutableListOf<Editor>()
         val lastPositions = mutableMapOf<Caret, Point>()
