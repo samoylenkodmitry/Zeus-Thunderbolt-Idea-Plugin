@@ -28,6 +28,7 @@ import kotlin.math.sqrt
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.*
+import kotlin.math.abs
 
 object ZeusThunderbolt : ApplicationActivationListener {
 
@@ -36,6 +37,13 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private const val maxParticles = 2500
     private const val maxChainParticles = 30
     private const val maxParticlePoolSize = 3000
+    private const val maxSnowflakes = 100
+    private const val maxStars = 50
+    private const val WIND_CHANGE_INTERVAL = 2f  // Wind changes direction every 2 seconds
+    private const val MAX_WIND_FORCE = 100f
+    private var currentWindForce = 0f
+    private var targetWindForce = 0f
+    private var windTimer = 0f
     private val coroutineScope = CoroutineScope(Dispatchers.Default)
     private var lastFrameTime = System.nanoTime()
     private var dt = 0f
@@ -45,6 +53,22 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private val random = Random()
     private val themes = Theme.entries.toTypedArray()
     private var currentTheme = Theme.None
+
+    private const val SNOW_FADE_OUT_TIME = 5f  // Time in seconds after typing stops
+    private const val SNOW_SPAWN_RATE = 0.1f   // Time between snowflake spawns
+    private const val MAX_ACTIVE_SNOWFLAKES = 100
+    private var isSnowing = false
+    private var snowTimer = 0f
+    private var lastTypingTime = 0f
+    private var snowSpawnAccumulator = 0f
+
+    private const val TYPING_COOLDOWN = 0.1f  // Shorter cooldown for responsive snow
+    private const val MIN_SNOW_SPAWN = 2      // Minimum snowflakes per spawn
+    private const val MAX_SNOW_SPAWN = 5      // Maximum snowflakes per spawn
+    private const val SNOW_LAYERS = 3         // Number of depth layers for snowflakes
+    private var typingSpeed = 0f              // Tracks typing speed
+    private var lastTypeTime = 0f             // Last time user typed
+    private var typeCount = 0                 // Count of recent keystrokes
 
     private fun trimParticles() {
         if (elements.size > maxParticles) {
@@ -193,6 +217,12 @@ object ZeusThunderbolt : ApplicationActivationListener {
                 if (remainingTime > 0) {
                     delay(remainingTime)
                 }
+
+                // Add wind update
+                updateWind()
+
+                // Add snow update
+                updateSnow()
             }
         }
 
@@ -235,6 +265,16 @@ object ZeusThunderbolt : ApplicationActivationListener {
             TypedActionHandler { editor, charTyped, dataContext ->
                 try {
                     defaultHandler.execute(editor, charTyped, dataContext)
+
+                    // Start snow on typing
+                    isSnowing = true
+                    lastTypingTime = System.nanoTime() * 1e-9f
+
+                    // Update typing stats
+                    lastTypingTime = System.nanoTime() * 1e-9f
+                    typeCount = (typeCount + 1).coerceAtMost(10)
+                    isSnowing = true
+
                 } catch (_: Exception) {
                 }
             }
@@ -251,6 +291,57 @@ object ZeusThunderbolt : ApplicationActivationListener {
             val location = editor.scrollingModel.visibleArea.location
             translate(-location.x, -location.y)
         }
+
+    private fun updateWind() {
+        windTimer += dt
+        if (windTimer >= WIND_CHANGE_INTERVAL) {
+            windTimer = 0f
+            targetWindForce = (random.nextFloat() * 2 - 1) * MAX_WIND_FORCE
+        }
+        // Smoothly interpolate to target wind force
+        currentWindForce += (targetWindForce - currentWindForce) * dt * 2
+    }
+
+    private fun updateTypingIntensity() {
+        val currentTime = System.nanoTime() * 1e-9f
+        if (currentTime - lastTypeTime > TYPING_COOLDOWN) {
+            typeCount = (typeCount - 1).coerceAtLeast(0)
+        }
+        typingSpeed = typeCount.coerceIn(0, 10) / 10f
+    }
+
+    private fun updateSnow() {
+        val currentTime = System.nanoTime() * 1e-9f
+        updateTypingIntensity()
+
+        // Check if we should stop snowing
+        if (isSnowing && currentTime - lastTypingTime > SNOW_FADE_OUT_TIME) {
+            isSnowing = false
+        }
+
+        // Only spawn snow while snowing
+        if (isSnowing) {
+            snowSpawnAccumulator += dt
+            while (snowSpawnAccumulator >= SNOW_SPAWN_RATE) {
+                snowSpawnAccumulator -= SNOW_SPAWN_RATE
+
+                // Count current snowflakes
+                val currentSnowflakes = elements.count { it is Snowflake }
+
+                if (currentSnowflakes < MAX_ACTIVE_SNOWFLAKES) {
+                    // Spawn amount based on typing intensity
+                    val spawnCount = (MIN_SNOW_SPAWN +
+                            (MAX_SNOW_SPAWN - MIN_SNOW_SPAWN) * typingSpeed).toInt()
+
+                    repeat(spawnCount) {
+                        val randomX = (-100..1100).random().toFloat()
+                        val layer = (0 until SNOW_LAYERS).random()
+                        elements.add(generateSnowflake(0f, 0f, Point(randomX.toInt(), 0), layer))
+                    }
+                }
+            }
+        }
+    }
 
     sealed interface PhysicsElement {
         var x0: Float
@@ -300,26 +391,207 @@ object ZeusThunderbolt : ApplicationActivationListener {
         }
     }
 
-    private fun generateParticles(x0: Float, y0: Float, point: Point, count: Int = 10): List<Particle> =
+    private fun generateParticles(x0: Float, y0: Float, point: Point, count: Int = 10): List<PhysicsElement> =
         (1..count).map {
-            particlePool.poll()?.apply {
-                this.x0 = x0
-                this.y0 = y0
-                this.x = point.x.toFloat()
-                this.y = point.y.toFloat()
-                reset()
-            } ?: Particle(
-                x0 = x0, y0 = y0,
-                x = point.x.toFloat(),
-                y = point.y.toFloat(),
-                size = random.nextInt(3) + 2f,
-                color = Color.getHSBColor(random.nextFloat(), 0.8f, 1f),
-                force = Force(
-                    (100 + random.nextInt(101)) * cos(random.nextDouble() * 2 * Math.PI).toFloat(),
-                    (100 + random.nextInt(101)) * sin(random.nextDouble() * 2 * Math.PI).toFloat()
-                )
-            )
+            when (random.nextFloat()) {
+                in 0.7f..0.9f -> generateSnowflake(x0, y0, point)
+                else -> generateRegularParticle(x0, y0, point)
+            }
         }
+
+    private fun generateRegularParticle(x0: Float, y0: Float, point: Point) =
+        particlePool.poll()?.apply {
+            this.x0 = x0
+            this.y0 = y0
+            this.x = point.x.toFloat()
+            this.y = point.y.toFloat()
+            reset()
+        } ?: Particle(
+            x0 = x0, y0 = y0,
+            x = point.x.toFloat(),
+            y = point.y.toFloat(),
+            size = random.nextInt(3) + 2f,
+            color = Color.getHSBColor(random.nextFloat(), 0.8f, 1f),
+            force = Force(
+                (100 + random.nextInt(101)) * cos(random.nextDouble() * 2 * Math.PI).toFloat(),
+                (100 + random.nextInt(101)) * sin(random.nextDouble() * 2 * Math.PI).toFloat()
+            )
+        )
+
+    private fun generateSnowflake(x0: Float, y0: Float, point: Point, layer: Int = 0): Snowflake {
+        val size = when (random.nextFloat()) {
+            in 0.0f..0.6f -> (2..4).random().toFloat()    // 60% small flakes
+            in 0.6f..0.9f -> (4..6).random().toFloat()    // 30% medium flakes
+            else -> (6..8).random().toFloat()             // 10% large flakes
+        }
+
+        return Snowflake(
+            x0 = x0,
+            y0 = y0,
+            x = point.x.toFloat(),
+            y = -size * 2,  // Start just above visible area
+            size = size,
+            rotationSpeed = (-1..1).random().toFloat() * 0.8f,
+            swayFrequency = (0.5f..2f).random(),
+            swayAmplitude = (2..5).random().toFloat(),
+            descendSpeed = (30 + size * 3).coerceIn(30f, 60f),  // Larger flakes fall faster
+            lifetime = (8..12).random().toFloat(),
+            windInfluence = (0.8f..1.2f).random(),
+            turbulence = (0.5f..1.5f).random(),
+            sparklePhase = random.nextFloat() * Math.PI.toFloat() * 2,
+            sparkleSpeed = (4..8).random().toFloat(),
+            layer = layer,
+            spinPhase = random.nextFloat() * Math.PI.toFloat() * 2,
+            spinSpeed = (2..4).random().toFloat()
+        )
+    }
+
+    data class Snowflake(
+        override var x0: Float,
+        override var y0: Float,
+        override var x: Float,
+        override var y: Float,
+        var size: Float = (2..5).random().toFloat(),
+        var rotationAngle: Float = (Math.random() * Math.PI * 2).toFloat(),
+        var rotationSpeed: Float = (-1..1).random().toFloat(),
+        var swayPhase: Float = (Math.random() * Math.PI * 2).toFloat(),
+        var swayFrequency: Float = (1..3).random().toFloat(),
+        var swayAmplitude: Float = (2..5).random().toFloat(),
+        var descendSpeed: Float = (30..50).random().toFloat(),
+        override var chainStrength: Float = 0f,
+        var lifetime: Float = 5f,
+        var windInfluence: Float = 1f,
+        var turbulence: Float = 1f,
+        var localWindOffset: Float = random.nextFloat() * Math.PI.toFloat() * 2,
+        var verticalOffset: Float = random.nextFloat() * Math.PI.toFloat() * 2,
+        var sparklePhase: Float = 0f,
+        var sparkleSpeed: Float = 5f,
+        var layer: Int = 0,                    // Depth layer (0 = front, SNOW_LAYERS-1 = back)
+        var spinPhase: Float = 0f,            // For wobble effect
+        var spinSpeed: Float = 1f,            // Speed of wobble
+        var nearbyForce: Force = Force(0f, 0f) // Forces from nearby snowflakes
+    ) : PhysicsElement {
+        override var isDead: Boolean = false
+
+        override fun update() {
+            lifetime -= dt
+            if (lifetime <= 0) {
+                isDead = true
+                return
+            }
+
+            // Layer-based behavior
+            val layerFactor = 1f - (layer.toFloat() / SNOW_LAYERS)
+            val baseSpeed = descendSpeed * (0.7f + 0.3f * layerFactor)
+
+            // Update vertical motion with enhanced variation
+            verticalOffset += dt * 2
+            val verticalVariation = sin(verticalOffset) * 2 * layerFactor
+            y += (baseSpeed + verticalVariation) * dt
+
+            // Enhanced wind effect based on layer
+            x += currentWindForce * windInfluence * layerFactor * dt
+
+            // Spin effect
+            spinPhase += spinSpeed * dt
+            val spinOffset = sin(spinPhase) * size * 0.2f
+            x += spinOffset * dt
+
+            // Interact with nearby snowflakes
+            nearbyForce.x *= 0.95f  // Decay
+            nearbyForce.y *= 0.95f
+            x += nearbyForce.x * dt
+            y += nearbyForce.y * dt
+
+            // Find nearby snowflakes
+            for (other in elements) {
+                if (other is Snowflake && other != this && other.layer == layer) {
+                    val dx = other.x - x
+                    val dy = other.y - y
+                    val dist = sqrt(dx * dx + dy * dy)
+                    if (dist < size * 4) {
+                        val force = 1f - (dist / (size * 4))
+                        nearbyForce.x -= dx * force * 10f
+                        nearbyForce.y -= dy * force * 10f
+                    }
+                }
+            }
+
+            // Reset if below visible area or too far to the sides
+            if (y > 1000 || x < -200 || x > 1200) {
+                // Reset position above screen with random horizontal position
+                y = -10f
+                x = (0..1000).random().toFloat()
+                lifetime = (8..12).random().toFloat()
+                // Randomize motion parameters for variety
+                swayPhase = random.nextFloat() * Math.PI.toFloat() * 2
+                localWindOffset = random.nextFloat() * Math.PI.toFloat() * 2
+                windInfluence = (0.8f..1.2f).random()
+                turbulence = (0.5f..1.5f).random()
+            }
+        }
+
+        override fun render(g: Graphics) {
+            val g2d = g.create() as Graphics2D
+            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+
+            // Layer-based appearance
+            sparklePhase += dt * sparkleSpeed * (1f + layer * 0.2f)
+
+            // Save original transform
+            val originalTransform = g2d.transform
+
+            // Move to snowflake position and rotate
+            g2d.translate(x.toDouble(), y.toDouble())
+            g2d.rotate(rotationAngle.toDouble())
+
+            // Draw snowflake
+            // Add slight size variation based on vertical speed
+            val speedFactor = (1f + (descendSpeed - 30f) / 50f) * 0.2f + 0.8f
+            val adjustedSize = size * speedFactor
+
+            // Update points array with new size
+            val points = Array(6) { i ->
+                val angle = i * (Math.PI / 3)
+                Point2D.Float(
+                    cos(angle).toFloat() * adjustedSize,
+                    sin(angle).toFloat() * adjustedSize
+                )
+            }
+
+            // Add sparkle effect
+            sparklePhase += dt * sparkleSpeed
+            val sparkle = (sin(sparklePhase) * 0.3f + 0.7f).coerceIn(0f, 1f)
+
+            // Draw snowflake with sparkle
+            val windOpacityFactor = (1f - abs(currentWindForce) / MAX_WIND_FORCE * 0.3f)
+            val alpha = ((255 * (lifetime / 5f)) * windOpacityFactor * sparkle).toInt().coerceIn(0, 255)
+            g2d.color = Color(255, 255, 255, alpha)
+
+            // Draw main crystal structure
+            for (i in points.indices) {
+                g2d.drawLine(0, 0, points[i].x.toInt(), points[i].y.toInt())
+                // Draw smaller branches
+                val midX = points[i].x * 0.5f
+                val midY = points[i].y * 0.5f
+                g2d.drawLine(
+                    midX.toInt(), midY.toInt(),
+                    (midX + points[(i + 2) % 6].x * 0.3f).toInt(),
+                    (midY + points[(i + 2) % 6].y * 0.3f).toInt()
+                )
+            }
+
+            // Restore original transform
+            g2d.transform = originalTransform
+            g2d.dispose()
+        }
+
+        override fun reset() {
+            isDead = false
+            lifetime = 5f
+            y = -10f
+        }
+    }
 
     data class Force(var x: Float, var y: Float)
 
@@ -664,6 +936,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
         particle.force.y += forceY * dt
     }
 }
+
+private fun ClosedFloatingPointRange<Float>.random(): Float =
+    start + Math.random().toFloat() * (endInclusive - start)
 
 @State(
     name = "com.zeus.thunderbolt.services.ZeusThunderbolt",
