@@ -21,13 +21,17 @@ class SettingsUI : Configurable {
     override fun isModified(): Boolean = 
         settingsComponent?.let { component ->
             component.themeIndex != ZeusThunderbolt.getCurrentThemeIndex() ||
-            component.snowEnabled != ZeusThunderbolt.isSnowEnabled()
+            component.snowEnabled != ZeusThunderbolt.isSnowEnabled() ||
+            component.regularParticlesEnabled != ZeusThunderbolt.isRegularParticlesEnabled() ||
+            component.fireParticlesEnabled != ZeusThunderbolt.isFireParticlesEnabled()
         } ?: false
 
     override fun apply() {
         settingsComponent?.let { component ->
             ZeusThunderbolt.setTheme(component.themeIndex)
             ZeusThunderbolt.setSnowEnabled(component.snowEnabled)
+            ZeusThunderbolt.setRegularParticlesEnabled(component.regularParticlesEnabled)
+            ZeusThunderbolt.setFireParticlesEnabled(component.fireParticlesEnabled)
         }
     }
 
@@ -35,6 +39,8 @@ class SettingsUI : Configurable {
         settingsComponent?.let { component ->
             component.themeIndex = ZeusThunderbolt.getCurrentThemeIndex()
             component.snowEnabled = ZeusThunderbolt.isSnowEnabled()
+            component.regularParticlesEnabled = ZeusThunderbolt.isRegularParticlesEnabled()
+            component.fireParticlesEnabled = ZeusThunderbolt.isFireParticlesEnabled()
         }
     }
 
@@ -46,12 +52,16 @@ class SettingsUI : Configurable {
 class ThunderSettingsComponent {
     private val themeCombo = JComboBox(ZeusThunderbolt.getThemeNames().toTypedArray())
     private val snowCheckbox = JBCheckBox("Enable Snow Effect", ZeusThunderbolt.isSnowEnabled())
+    private val regularParticlesCheckbox = JBCheckBox("Enable Regular Particles", ZeusThunderbolt.isRegularParticlesEnabled())
+    private val fireParticlesCheckbox = JBCheckBox("Enable Fire Particles", ZeusThunderbolt.isFireParticlesEnabled())
     val panel: JPanel
 
     init {
         themeCombo.selectedIndex = ZeusThunderbolt.getCurrentThemeIndex()
         panel = FormBuilder.createFormBuilder()
             .addLabeledComponent(JBLabel("Effect Theme:"), themeCombo)
+            .addComponent(regularParticlesCheckbox)
+            .addComponent(fireParticlesCheckbox)
             .addComponent(snowCheckbox)
             .addComponentFillVertically(JPanel(), 0)
             .panel
@@ -67,5 +77,17 @@ class ThunderSettingsComponent {
         get() = snowCheckbox.isSelected
         set(value) {
             snowCheckbox.isSelected = value
+        }
+
+    var regularParticlesEnabled: Boolean
+        get() = regularParticlesCheckbox.isSelected
+        set(value) {
+            regularParticlesCheckbox.isSelected = value
+        }
+
+    var fireParticlesEnabled: Boolean
+        get() = fireParticlesCheckbox.isSelected
+        set(value) {
+            fireParticlesCheckbox.isSelected = value
         }
 }

@@ -28,6 +28,7 @@ import kotlin.math.sqrt
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.*
+import java.awt.geom.Ellipse2D
 import kotlin.math.abs
 
 object ZeusThunderbolt : ApplicationActivationListener {
@@ -69,6 +70,22 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
     private const val DEFAULT_SNOW_ENABLED = false
     private var snowEnabled = DEFAULT_SNOW_ENABLED
+
+    const val DEFAULT_REGULAR_PARTICLES_ENABLED = true
+    const val DEFAULT_FIRE_PARTICLES_ENABLED = false
+    
+    private var regularParticlesEnabled = DEFAULT_REGULAR_PARTICLES_ENABLED
+    private var fireParticlesEnabled = DEFAULT_FIRE_PARTICLES_ENABLED
+    
+    fun isRegularParticlesEnabled() = regularParticlesEnabled
+    fun setRegularParticlesEnabled(enabled: Boolean) {
+        regularParticlesEnabled = enabled
+    }
+    
+    fun isFireParticlesEnabled() = fireParticlesEnabled
+    fun setFireParticlesEnabled(enabled: Boolean) {
+        fireParticlesEnabled = enabled
+    }
 
     private fun trimParticles() {
         if (elements.size > maxParticles) {
@@ -396,11 +413,12 @@ object ZeusThunderbolt : ApplicationActivationListener {
     }
 
     private fun generateParticles(x0: Float, y0: Float, point: Point, count: Int = 10): List<PhysicsElement> =
-        (1..count).map {
+        (1..count).mapNotNull {
             when {
-                // Only generate snowflakes if snow is enabled
                 snowEnabled && random.nextFloat() in 0.7f..0.9f -> generateSnowflake(x0, y0, point)
-                else -> generateRegularParticle(x0, y0, point)
+                fireParticlesEnabled && random.nextFloat() > 0.6f -> generateFireParticle(x0, y0, point)
+                regularParticlesEnabled -> generateRegularParticle(x0, y0, point)
+                else -> null
             }
         }
 
@@ -450,6 +468,18 @@ object ZeusThunderbolt : ApplicationActivationListener {
             spinSpeed = (2..4).random().toFloat()
         )
     }
+
+    private fun generateFireParticle(x0: Float, y0: Float, point: Point) = FireParticle(
+        x0 = x0, y0 = y0,
+        x = point.x.toFloat(),
+        y = point.y.toFloat(),
+        size = (3..6).random().toFloat(),
+        color = Color(255, (100..200).random(), 0, 255),
+        force = Force(
+            (80..160).random().toFloat() * cos(random.nextDouble() * 2 * Math.PI).toFloat(),
+            (80..160).random().toFloat() * sin(random.nextDouble() * 2 * Math.PI).toFloat()
+        )
+    )
 
     data class Snowflake(
         override var x0: Float,
@@ -927,6 +957,78 @@ object ZeusThunderbolt : ApplicationActivationListener {
         }
     }
 
+    data class FireParticle(
+        override var x0: Float,
+        override var y0: Float,
+        override var x: Float,
+        override var y: Float,
+        var size: Float,
+        var color: Color,
+        var force: Force,
+        var lifetime: Float = 1.5f,
+        override var chainStrength: Float = 0f,
+        var flickerPhase: Float = (Math.random() * Math.PI * 2).toFloat()
+    ) : PhysicsElement {
+        override var isDead: Boolean = false
+
+        override fun update() {
+            lifetime -= dt
+            if (lifetime <= 0) {
+                isDead = true
+                return
+            }
+
+            // Rising motion
+            force.y -= 150f * dt
+
+            // Sideways drift
+            force.x += (random.nextFloat() - 0.5f) * 50f
+
+            // Update position
+            x += force.x * dt
+            y += force.y * dt
+
+            // Apply drag
+            force.x *= 0.97f
+            force.y *= 0.97f
+
+            // Flicker effect
+            flickerPhase += 10f * dt
+        }
+
+        override fun render(g: Graphics) {
+            val g2d = g.create() as Graphics2D
+            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+
+            // Calculate flicker and life progress
+            val flicker = 0.7f + 0.3f * sin(flickerPhase)
+            val lifeProgress = (lifetime / 1.5f).coerceIn(0f, 1f)
+
+            // Create gradient for fire effect
+            val center = Point2D.Float(x, y)
+            val radius = size * 2f
+            val gradient = RadialGradientPaint(
+                center,
+                radius,
+                floatArrayOf(0f, 0.7f, 1f),
+                arrayOf(
+                    Color(255, 255, 200, (255 * lifeProgress * flicker).toInt()),
+                    Color(255, 128, 0, (200 * lifeProgress * flicker).toInt()),
+                    Color(255, 0, 0, 0)
+                )
+            )
+
+            g2d.paint = gradient
+            g2d.fill(Ellipse2D.Float(x - radius, y - radius, radius * 2, radius * 2))
+            g2d.dispose()
+        }
+
+        override fun reset() {
+            isDead = false
+            lifetime = 1.5f
+        }
+    }
+
     // Add force field effect
     fun applyForceField(particle: Particle) {
         val fieldStrength = 50f
@@ -952,6 +1054,8 @@ private fun ClosedFloatingPointRange<Float>.random(): Float =
 
 class ThunderSettings : PersistentStateComponent<ThunderSettings> {
     var themeIndex: Int = -1 // Default to "None" theme
+    var regularParticlesEnabled: Boolean = ZeusThunderbolt.DEFAULT_REGULAR_PARTICLES_ENABLED
+    var fireParticlesEnabled: Boolean = ZeusThunderbolt.DEFAULT_FIRE_PARTICLES_ENABLED
 
     override fun getState(): ThunderSettings = this
 
