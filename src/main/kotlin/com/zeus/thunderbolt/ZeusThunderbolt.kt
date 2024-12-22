@@ -75,16 +75,19 @@ object ZeusThunderbolt : ApplicationActivationListener {
     const val DEFAULT_FIRE_PARTICLES_ENABLED = false
     
     private var regularParticlesEnabled = DEFAULT_REGULAR_PARTICLES_ENABLED
-    private var fireParticlesEnabled = DEFAULT_FIRE_PARTICLES_ENABLED
-    
+
     fun isRegularParticlesEnabled() = regularParticlesEnabled
     fun setRegularParticlesEnabled(enabled: Boolean) {
         regularParticlesEnabled = enabled
     }
     
-    fun isFireParticlesEnabled() = fireParticlesEnabled
-    fun setFireParticlesEnabled(enabled: Boolean) {
-        fireParticlesEnabled = enabled
+    const val DEFAULT_STARDUST_PARTICLES_ENABLED = false
+    
+    private var stardustParticlesEnabled = DEFAULT_STARDUST_PARTICLES_ENABLED
+    
+    fun isStardustParticlesEnabled() = stardustParticlesEnabled
+    fun setStardustParticlesEnabled(enabled: Boolean) {
+        stardustParticlesEnabled = enabled
     }
 
     private fun trimParticles() {
@@ -416,7 +419,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
         (1..count).mapNotNull {
             when {
                 snowEnabled && random.nextFloat() in 0.7f..0.9f -> generateSnowflake(x0, y0, point)
-                fireParticlesEnabled && random.nextFloat() > 0.6f -> generateFireParticle(x0, y0, point)
+                stardustParticlesEnabled && random.nextFloat() > 0.8f -> generateStardustParticle(x0, y0, point)
                 regularParticlesEnabled -> generateRegularParticle(x0, y0, point)
                 else -> null
             }
@@ -479,6 +482,30 @@ object ZeusThunderbolt : ApplicationActivationListener {
             (80..160).random().toFloat() * cos(random.nextDouble() * 2 * Math.PI).toFloat(),
             (80..160).random().toFloat() * sin(random.nextDouble() * 2 * Math.PI).toFloat()
         )
+    )
+
+    private fun generateElectricParticle(x0: Float, y0: Float, point: Point) = ElectricParticle(
+        x0 = x0, y0 = y0,
+        x = point.x.toFloat(),
+        y = point.y.toFloat(),
+        size = (2..4).random().toFloat(),
+        color = Color(100, 200, 255)
+    )
+
+    private fun generateWaterParticle(x0: Float, y0: Float, point: Point) = WaterParticle(
+        x0 = x0, y0 = y0,
+        x = point.x.toFloat(),
+        y = point.y.toFloat(),
+        size = (3..5).random().toFloat(),
+        color = Color(0, 150, 255)
+    )
+
+    private fun generateStardustParticle(x0: Float, y0: Float, point: Point) = StardustParticle(
+        x0 = x0, y0 = y0,
+        x = point.x.toFloat(),
+        y = point.y.toFloat(),
+        size = (2..4).random().toFloat(),
+        color = Color(255, 255, 200)
     )
 
     data class Snowflake(
@@ -1029,6 +1056,211 @@ object ZeusThunderbolt : ApplicationActivationListener {
         }
     }
 
+    data class ElectricParticle(
+        override var x0: Float,
+        override var y0: Float,
+        override var x: Float,
+        override var y: Float,
+        var size: Float,
+        var color: Color,
+        var lifetime: Float = 1f,
+        override var chainStrength: Float = 0.9f,
+        var boltLength: Float = (20..40).random().toFloat(),
+        var boltAngle: Float = random.nextFloat() * Math.PI.toFloat() * 2,
+        var zapPhase: Float = random.nextFloat() * Math.PI.toFloat() * 2
+    ) : PhysicsElement {
+        override var isDead: Boolean = false
+
+        override fun update() {
+            lifetime -= dt
+            if (lifetime <= 0) {
+                isDead = true
+                return
+            }
+
+            // Zapping motion
+            zapPhase += 20f * dt
+            boltAngle += sin(zapPhase) * 2f * dt
+
+            // Lightning effect position
+            x += cos(boltAngle) * boltLength * dt
+            y += sin(boltAngle) * boltLength * dt
+        }
+
+        override fun render(g: Graphics) {
+            val g2d = g.create() as Graphics2D
+            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+
+            // Draw lightning effect
+            val alpha = (255 * lifetime).toInt().coerceIn(0, 255)
+            g2d.stroke = BasicStroke(size / 2f)
+            g2d.color = Color(color.red, color.green, color.blue, alpha)
+
+            val endX = x + cos(boltAngle) * boltLength
+            val endY = y + sin(boltAngle) * boltLength
+
+            // Draw zigzag lightning
+            val path = GeneralPath()
+            path.moveTo(x.toDouble(), y.toDouble())
+            
+            val segments = 5
+            for (i in 1..segments) {
+                val progress = i.toFloat() / segments
+                val offsetX = sin(zapPhase + i * 2) * size * 2
+                val offsetY = cos(zapPhase + i * 2) * size * 2
+                val segX = x + (endX - x) * progress + offsetX
+                val segY = y + (endY - y) * progress + offsetY
+                path.lineTo(segX.toDouble(), segY.toDouble())
+            }
+
+            g2d.draw(path)
+            g2d.dispose()
+        }
+
+        override fun reset() {
+            isDead = false
+            lifetime = 1f
+        }
+    }
+
+    data class WaterParticle(
+        override var x0: Float,
+        override var y0: Float,
+        override var x: Float,
+        override var y: Float,
+        var size: Float,
+        var color: Color,
+        var lifetime: Float = 2f,
+        override var chainStrength: Float = 0f,
+        var ripplePhase: Float = 0f,
+        var fallSpeed: Float = (50..100).random().toFloat()
+    ) : PhysicsElement {
+        override var isDead: Boolean = false
+
+        override fun update() {
+            lifetime -= dt
+            if (lifetime <= 0) {
+                isDead = true
+                return
+            }
+
+            // Falling motion with slight swaying
+            ripplePhase += 5f * dt
+            x += sin(ripplePhase) * 2f * dt
+            y += fallSpeed * dt
+
+            // Increase fall speed
+            fallSpeed += 50f * dt
+        }
+
+        override fun render(g: Graphics) {
+            val g2d = g.create() as Graphics2D
+            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+
+            val alpha = (255 * lifetime / 2f).toInt().coerceIn(0, 255)
+            
+            // Draw water droplet
+            val gradient = RadialGradientPaint(
+                x, y, size * 2,
+                floatArrayOf(0f, 1f),
+                arrayOf(
+                    Color(color.red, color.green, color.blue, alpha),
+                    Color(color.red, color.green, color.blue, 0)
+                )
+            )
+
+            g2d.paint = gradient
+            g2d.fill(Ellipse2D.Float(x - size, y - size, size * 2, size * 2))
+            g2d.dispose()
+        }
+
+        override fun reset() {
+            isDead = false
+            lifetime = 2f
+        }
+    }
+
+    data class StardustParticle(
+        override var x0: Float,
+        override var y0: Float,
+        override var x: Float,
+        override var y: Float,
+        var size: Float,
+        var color: Color,
+        var lifetime: Float = 3f,
+        override var chainStrength: Float = 0f,
+        var twinklePhase: Float = random.nextFloat() * Math.PI.toFloat() * 2,
+        var rotationAngle: Float = random.nextFloat() * Math.PI.toFloat() * 2,
+        var driftSpeed: Float = (10..30).random().toFloat()
+    ) : PhysicsElement {
+        override var isDead: Boolean = false
+
+        override fun update() {
+            lifetime -= dt
+            if (lifetime <= 0) {
+                isDead = true
+                return
+            }
+
+            // Twinkling effect
+            twinklePhase += 8f * dt
+            
+            // Drifting motion
+            rotationAngle += dt
+            x += cos(rotationAngle) * driftSpeed * dt
+            y += sin(rotationAngle) * driftSpeed * dt
+        }
+
+        override fun render(g: Graphics) {
+            val g2d = g.create() as Graphics2D
+            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+
+            // Twinkle effect
+            val twinkle = (sin(twinklePhase) * 0.5f + 0.5f)
+            val alpha = (255 * lifetime / 3f * twinkle).toInt().coerceIn(0, 255)
+
+            // Draw star shape
+            val points = 5
+            val outerRadius = size
+            val innerRadius = size * 0.5f
+            
+            val path = GeneralPath()
+            for (i in 0 until points * 2) {
+                val angle = Math.PI * i / points
+                val radius = if (i % 2 == 0) outerRadius else innerRadius
+                val px = x + cos(angle) * radius
+                val py = y + sin(angle) * radius
+                if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+            }
+            path.closePath()
+
+            // Glow effect
+            val glowSize = size * 3
+            val glow = RadialGradientPaint(
+                x, y, glowSize,
+                floatArrayOf(0f, 1f),
+                arrayOf(
+                    Color(color.red, color.green, color.blue, (alpha * 0.5f).toInt()),
+                    Color(color.red, color.green, color.blue, 0)
+                )
+            )
+
+            g2d.paint = glow
+            g2d.fill(Ellipse2D.Float(x - glowSize, y - glowSize, glowSize * 2, glowSize * 2))
+
+            // Star shape
+            g2d.color = Color(color.red, color.green, color.blue, alpha)
+            g2d.fill(path)
+
+            g2d.dispose()
+        }
+
+        override fun reset() {
+            isDead = false
+            lifetime = 3f
+        }
+    }
+
     // Add force field effect
     fun applyForceField(particle: Particle) {
         val fieldStrength = 50f
@@ -1054,8 +1286,6 @@ private fun ClosedFloatingPointRange<Float>.random(): Float =
 
 class ThunderSettings : PersistentStateComponent<ThunderSettings> {
     var themeIndex: Int = -1 // Default to "None" theme
-    var regularParticlesEnabled: Boolean = ZeusThunderbolt.DEFAULT_REGULAR_PARTICLES_ENABLED
-    var fireParticlesEnabled: Boolean = ZeusThunderbolt.DEFAULT_FIRE_PARTICLES_ENABLED
 
     override fun getState(): ThunderSettings = this
 

@@ -23,7 +23,7 @@ class SettingsUI : Configurable {
             component.themeIndex != ZeusThunderbolt.getCurrentThemeIndex() ||
             component.snowEnabled != ZeusThunderbolt.isSnowEnabled() ||
             component.regularParticlesEnabled != ZeusThunderbolt.isRegularParticlesEnabled() ||
-            component.fireParticlesEnabled != ZeusThunderbolt.isFireParticlesEnabled()
+            component.stardustParticlesEnabled != ZeusThunderbolt.isStardustParticlesEnabled()
         } ?: false
 
     override fun apply() {
@@ -31,7 +31,7 @@ class SettingsUI : Configurable {
             ZeusThunderbolt.setTheme(component.themeIndex)
             ZeusThunderbolt.setSnowEnabled(component.snowEnabled)
             ZeusThunderbolt.setRegularParticlesEnabled(component.regularParticlesEnabled)
-            ZeusThunderbolt.setFireParticlesEnabled(component.fireParticlesEnabled)
+            ZeusThunderbolt.setStardustParticlesEnabled(component.stardustParticlesEnabled)
         }
     }
 
@@ -40,7 +40,7 @@ class SettingsUI : Configurable {
             component.themeIndex = ZeusThunderbolt.getCurrentThemeIndex()
             component.snowEnabled = ZeusThunderbolt.isSnowEnabled()
             component.regularParticlesEnabled = ZeusThunderbolt.isRegularParticlesEnabled()
-            component.fireParticlesEnabled = ZeusThunderbolt.isFireParticlesEnabled()
+            component.stardustParticlesEnabled = ZeusThunderbolt.isStardustParticlesEnabled()
         }
     }
 
@@ -53,7 +53,7 @@ class ThunderSettingsComponent {
     private val themeCombo = JComboBox(ZeusThunderbolt.getThemeNames().toTypedArray())
     private val snowCheckbox = JBCheckBox("Enable Snow Effect", ZeusThunderbolt.isSnowEnabled())
     private val regularParticlesCheckbox = JBCheckBox("Enable Regular Particles", ZeusThunderbolt.isRegularParticlesEnabled())
-    private val fireParticlesCheckbox = JBCheckBox("Enable Fire Particles", ZeusThunderbolt.isFireParticlesEnabled())
+    private val stardustParticlesCheckbox = JBCheckBox("Enable Stardust Particles", ZeusThunderbolt.isStardustParticlesEnabled())
     val panel: JPanel
 
     init {
@@ -61,7 +61,7 @@ class ThunderSettingsComponent {
         panel = FormBuilder.createFormBuilder()
             .addLabeledComponent(JBLabel("Effect Theme:"), themeCombo)
             .addComponent(regularParticlesCheckbox)
-            .addComponent(fireParticlesCheckbox)
+            .addComponent(stardustParticlesCheckbox)
             .addComponent(snowCheckbox)
             .addComponentFillVertically(JPanel(), 0)
             .panel
@@ -85,9 +85,9 @@ class ThunderSettingsComponent {
             regularParticlesCheckbox.isSelected = value
         }
 
-    var fireParticlesEnabled: Boolean
-        get() = fireParticlesCheckbox.isSelected
+    var stardustParticlesEnabled: Boolean
+        get() = stardustParticlesCheckbox.isSelected
         set(value) {
-            fireParticlesCheckbox.isSelected = value
+            stardustParticlesCheckbox.isSelected = value
         }
 }
