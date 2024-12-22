@@ -73,7 +73,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
     const val DEFAULT_REGULAR_PARTICLES_ENABLED = true
     const val DEFAULT_FIRE_PARTICLES_ENABLED = false
-    
+
     private var regularParticlesEnabled = DEFAULT_REGULAR_PARTICLES_ENABLED
 
     fun isRegularParticlesEnabled() = regularParticlesEnabled
@@ -81,11 +81,11 @@ object ZeusThunderbolt : ApplicationActivationListener {
         regularParticlesEnabled = enabled
         settings.regularParticlesEnabled = enabled
     }
-    
+
     const val DEFAULT_STARDUST_PARTICLES_ENABLED = false
-    
+
     private var stardustParticlesEnabled = DEFAULT_STARDUST_PARTICLES_ENABLED
-    
+
     fun isStardustParticlesEnabled() = stardustParticlesEnabled
     fun setStardustParticlesEnabled(enabled: Boolean) {
         stardustParticlesEnabled = enabled
@@ -478,40 +478,21 @@ object ZeusThunderbolt : ApplicationActivationListener {
         )
     }
 
-    private fun generateFireParticle(x0: Float, y0: Float, point: Point) = FireParticle(
-        x0 = x0, y0 = y0,
-        x = point.x.toFloat(),
-        y = point.y.toFloat(),
-        size = (3..6).random().toFloat(),
-        color = Color(255, (100..200).random(), 0, 255),
-        force = Force(
-            (80..160).random().toFloat() * cos(random.nextDouble() * 2 * Math.PI).toFloat(),
-            (80..160).random().toFloat() * sin(random.nextDouble() * 2 * Math.PI).toFloat()
-        )
-    )
-
-    private fun generateElectricParticle(x0: Float, y0: Float, point: Point) = ElectricParticle(
-        x0 = x0, y0 = y0,
-        x = point.x.toFloat(),
-        y = point.y.toFloat(),
-        size = (2..4).random().toFloat(),
-        color = Color(100, 200, 255)
-    )
-
-    private fun generateWaterParticle(x0: Float, y0: Float, point: Point) = WaterParticle(
-        x0 = x0, y0 = y0,
-        x = point.x.toFloat(),
-        y = point.y.toFloat(),
-        size = (3..5).random().toFloat(),
-        color = Color(0, 150, 255)
-    )
-
     private fun generateStardustParticle(x0: Float, y0: Float, point: Point) = StardustParticle(
         x0 = x0, y0 = y0,
         x = point.x.toFloat(),
         y = point.y.toFloat(),
-        size = (2..4).random().toFloat(),
-        color = Color(255, 255, 200)
+        size = (3..6).random().toFloat(),  // Slightly larger size
+        baseColor = when (random.nextInt(5)) {  // More color variations
+            0 -> Color(255, 223, 170)  // Warm gold
+            1 -> Color(200, 255, 255)  // Ice blue
+            2 -> Color(255, 200, 255)  // Pink
+            3 -> Color(230, 230, 255)  // Starlight white
+            else -> Color(180, 230, 255)  // Crystal blue
+        },
+        color = Color(255, 255, 200),
+        trailLength = (15..25).random(),  // Longer trails
+        driftSpeed = (8..20).random().toFloat()  // Slower, more graceful movement
     )
 
     data class Snowflake(
@@ -1062,130 +1043,6 @@ object ZeusThunderbolt : ApplicationActivationListener {
         }
     }
 
-    data class ElectricParticle(
-        override var x0: Float,
-        override var y0: Float,
-        override var x: Float,
-        override var y: Float,
-        var size: Float,
-        var color: Color,
-        var lifetime: Float = 1f,
-        override var chainStrength: Float = 0.9f,
-        var boltLength: Float = (20..40).random().toFloat(),
-        var boltAngle: Float = random.nextFloat() * Math.PI.toFloat() * 2,
-        var zapPhase: Float = random.nextFloat() * Math.PI.toFloat() * 2
-    ) : PhysicsElement {
-        override var isDead: Boolean = false
-
-        override fun update() {
-            lifetime -= dt
-            if (lifetime <= 0) {
-                isDead = true
-                return
-            }
-
-            // Zapping motion
-            zapPhase += 20f * dt
-            boltAngle += sin(zapPhase) * 2f * dt
-
-            // Lightning effect position
-            x += cos(boltAngle) * boltLength * dt
-            y += sin(boltAngle) * boltLength * dt
-        }
-
-        override fun render(g: Graphics) {
-            val g2d = g.create() as Graphics2D
-            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-
-            // Draw lightning effect
-            val alpha = (255 * lifetime).toInt().coerceIn(0, 255)
-            g2d.stroke = BasicStroke(size / 2f)
-            g2d.color = Color(color.red, color.green, color.blue, alpha)
-
-            val endX = x + cos(boltAngle) * boltLength
-            val endY = y + sin(boltAngle) * boltLength
-
-            // Draw zigzag lightning
-            val path = GeneralPath()
-            path.moveTo(x.toDouble(), y.toDouble())
-            
-            val segments = 5
-            for (i in 1..segments) {
-                val progress = i.toFloat() / segments
-                val offsetX = sin(zapPhase + i * 2) * size * 2
-                val offsetY = cos(zapPhase + i * 2) * size * 2
-                val segX = x + (endX - x) * progress + offsetX
-                val segY = y + (endY - y) * progress + offsetY
-                path.lineTo(segX.toDouble(), segY.toDouble())
-            }
-
-            g2d.draw(path)
-            g2d.dispose()
-        }
-
-        override fun reset() {
-            isDead = false
-            lifetime = 1f
-        }
-    }
-
-    data class WaterParticle(
-        override var x0: Float,
-        override var y0: Float,
-        override var x: Float,
-        override var y: Float,
-        var size: Float,
-        var color: Color,
-        var lifetime: Float = 2f,
-        override var chainStrength: Float = 0f,
-        var ripplePhase: Float = 0f,
-        var fallSpeed: Float = (50..100).random().toFloat()
-    ) : PhysicsElement {
-        override var isDead: Boolean = false
-
-        override fun update() {
-            lifetime -= dt
-            if (lifetime <= 0) {
-                isDead = true
-                return
-            }
-
-            // Falling motion with slight swaying
-            ripplePhase += 5f * dt
-            x += sin(ripplePhase) * 2f * dt
-            y += fallSpeed * dt
-
-            // Increase fall speed
-            fallSpeed += 50f * dt
-        }
-
-        override fun render(g: Graphics) {
-            val g2d = g.create() as Graphics2D
-            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-
-            val alpha = (255 * lifetime / 2f).toInt().coerceIn(0, 255)
-            
-            // Draw water droplet
-            val gradient = RadialGradientPaint(
-                x, y, size * 2,
-                floatArrayOf(0f, 1f),
-                arrayOf(
-                    Color(color.red, color.green, color.blue, alpha),
-                    Color(color.red, color.green, color.blue, 0)
-                )
-            )
-
-            g2d.paint = gradient
-            g2d.fill(Ellipse2D.Float(x - size, y - size, size * 2, size * 2))
-            g2d.dispose()
-        }
-
-        override fun reset() {
-            isDead = false
-            lifetime = 2f
-        }
-    }
-
     data class StardustParticle(
         override var x0: Float,
         override var y0: Float,
@@ -1199,7 +1056,10 @@ object ZeusThunderbolt : ApplicationActivationListener {
         var rotationAngle: Float = random.nextFloat() * Math.PI.toFloat() * 2,
         var driftSpeed: Float = (10..30).random().toFloat(),
         var colorTransitionPhase: Float = random.nextFloat() * Math.PI.toFloat() * 2,
-        var trailPoints: Array<Point2D.Float> = Array(15) { Point2D.Float() },
+        var trailLength: Int = 20,
+        var trailPoints: Array<Point2D.Float> = Array(trailLength) { Point2D.Float() },
+        var sparklePoints: Array<Point2D.Float> = Array(4) { Point2D.Float() },
+        var sparkleDistance: Float = size * 2f,
         var trailIndex: Int = 0,
         var trailSize: Int = 0,
         var baseColor: Color = when (random.nextInt(3)) {
@@ -1227,7 +1087,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
             // Enhanced twinkling effect
             twinklePhase += (8f + sin(colorTransitionPhase) * 4f) * dt
-            
+
             // Smooth drifting motion with spiral tendency
             rotationAngle += dt * (0.5f + sin(twinklePhase * 0.5f) * 0.3f)
             val spiralRadius = 30f + sin(twinklePhase * 0.3f) * 10f
@@ -1247,6 +1107,14 @@ object ZeusThunderbolt : ApplicationActivationListener {
                     }
                 }
             }
+            // Update sparkle positions
+            for (i in sparklePoints.indices) {
+                val angle = twinklePhase + (Math.PI * 2 * i / sparklePoints.size)
+                sparklePoints[i].setLocation(
+                    x + cos(angle / 2) * sparkleDistance + sin(i + angle / 4) * sparkleDistance / 2,
+                    y + sin(angle / 2) * sparkleDistance - cos(i + angle / 4) * sparkleDistance / 2
+                )
+            }
         }
 
         override fun render(g: Graphics) {
@@ -1255,7 +1123,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
             // Calculate current color based on transition phase
             val currentColor = getTransitionedColor()
-            
+
             // Draw trail with gradient
             if (trailSize > 1) {
                 renderTrail(g2d, currentColor)
@@ -1284,7 +1152,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
             val path = GeneralPath()
             var i = trailIndex
             path.moveTo(trailPoints[i].x, trailPoints[i].y)
-            
+
             repeat(trailSize) { index ->
                 val t = trailPoints[(i-- + trailPoints.size) % trailPoints.size]
                 val progress = 1f - (index.toFloat() / trailSize)
@@ -1294,57 +1162,91 @@ object ZeusThunderbolt : ApplicationActivationListener {
                 )
                 path.lineTo(t.x, t.y)
             }
-            
+
             g2d.stroke = BasicStroke(size / 4f)
             g2d.draw(path)
         }
 
         private fun renderGlowLayers(g2d: Graphics2D, color: Color, alpha: Int) {
-            val numLayers = 4
+            val numLayers = 5  // More glow layers
             for (i in numLayers downTo 1) {
-                val layerSize = size * (2.5f + i * 0.5f)
-                val layerAlpha = (alpha * (i.toFloat() / numLayers) * 0.3f).toInt()
-                
+                val layerSize = size * (2f + i * 0.8f)
+                val layerAlpha = (alpha * (i.toFloat() / numLayers) * 0.4f).toInt()
+
                 val gradient = RadialGradientPaint(
                     x, y, layerSize,
-                    floatArrayOf(0f, 0.5f, 1f),
+                    floatArrayOf(0f, 0.3f, 0.7f, 1f),  // More gradient stops
                     arrayOf(
                         Color(color.red, color.green, color.blue, layerAlpha),
-                        Color(color.red, color.green, color.blue, (layerAlpha * 0.5f).toInt()),
+                        Color(color.red, color.green, color.blue, (layerAlpha * 0.8f).toInt()),
+                        Color(color.red, color.green, color.blue, (layerAlpha * 0.3f).toInt()),
                         Color(color.red, color.green, color.blue, 0)
                     )
                 )
-                
+
                 g2d.paint = gradient
-                g2d.fill(Ellipse2D.Float(
-                    x - layerSize, y - layerSize,
-                    layerSize * 2, layerSize * 2
-                ))
+                g2d.fill(
+                    Ellipse2D.Float(
+                        x - layerSize, y - layerSize,
+                        layerSize * 2, layerSize * 2
+                    )
+                )
+            }
+
+            // Add sparkles
+            for (sparkle in sparklePoints) {
+                val sparkleSize = size * 0.5f
+                val sparkleGlow = RadialGradientPaint(
+                    sparkle.x, sparkle.y, sparkleSize * 2,
+                    floatArrayOf(0f, 1f),
+                    arrayOf(
+                        Color(255, 255, 255, (alpha * 0.7f).toInt()),
+                        Color(255, 255, 255, 0)
+                    )
+                )
+                g2d.paint = sparkleGlow
+                g2d.fill(
+                    Ellipse2D.Float(
+                        sparkle.x - sparkleSize, sparkle.y - sparkleSize,
+                        sparkleSize * 2, sparkleSize * 2
+                    )
+                )
             }
         }
 
         private fun renderStarShape(g2d: Graphics2D, color: Color, alpha: Int) {
             val points = 5
             val outerRadius = size
-            val innerRadius = size * 0.5f
-            val extraPoints = 2 // Additional points for more detail
-            
+            val innerRadius = size * 0.4f  // Sharper star points
+            val extraPoints = 3  // More detailed star shape
+
             val path = GeneralPath()
             for (i in 0 until points * 2 * extraPoints) {
                 val angle = Math.PI * i / (points * extraPoints)
                 val radius = if (i % 2 == 0) outerRadius else innerRadius
-                val px = x + cos(angle) * radius
-                val py = y + sin(angle) * radius
+                val wobble = sin(twinklePhase * 2 + i) * size * 0.1f
+                val px = x + cos(angle) * (radius + wobble)
+                val py = y + sin(angle) * (radius + wobble)
                 if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
             }
             path.closePath()
 
-            g2d.color = Color(color.red, color.green, color.blue, alpha)
+            // Main star body with gradient
+            val starGradient = RadialGradientPaint(
+                x, y, outerRadius,
+                floatArrayOf(0f, 0.5f, 1f),
+                arrayOf(
+                    Color(255, 255, 255, alpha),
+                    Color(color.red, color.green, color.blue, alpha),
+                    Color(color.red, color.green, color.blue, (alpha * 0.5f).toInt())
+                )
+            )
+            g2d.paint = starGradient
             g2d.fill(path)
 
-            // Add highlight
-            g2d.color = Color(255, 255, 255, (alpha * 0.5f).toInt())
-            g2d.stroke = BasicStroke(size / 8f)
+            // Highlight
+            g2d.color = Color(255, 255, 255, (alpha * 0.7f).toInt())
+            g2d.stroke = BasicStroke(size / 10f)
             g2d.draw(path)
         }
 
