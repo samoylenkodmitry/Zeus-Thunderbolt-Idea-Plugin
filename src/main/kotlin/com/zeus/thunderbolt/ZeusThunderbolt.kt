@@ -37,8 +37,6 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private const val maxParticles = 2500
     private const val maxChainParticles = 30
     private const val maxParticlePoolSize = 3000
-    private const val maxSnowflakes = 100
-    private const val maxStars = 50
     private const val WIND_CHANGE_INTERVAL = 2f  // Wind changes direction every 2 seconds
     private const val MAX_WIND_FORCE = 100f
     private var currentWindForce = 0f
@@ -58,7 +56,6 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private const val SNOW_SPAWN_RATE = 0.1f   // Time between snowflake spawns
     private const val MAX_ACTIVE_SNOWFLAKES = 100
     private var isSnowing = false
-    private var snowTimer = 0f
     private var lastTypingTime = 0f
     private var snowSpawnAccumulator = 0f
 
@@ -69,6 +66,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private var typingSpeed = 0f              // Tracks typing speed
     private var lastTypeTime = 0f             // Last time user typed
     private var typeCount = 0                 // Count of recent keystrokes
+
+    private const val DEFAULT_SNOW_ENABLED = false
+    private var snowEnabled = DEFAULT_SNOW_ENABLED
 
     private fun trimParticles() {
         if (elements.size > maxParticles) {
@@ -94,6 +94,12 @@ object ZeusThunderbolt : ApplicationActivationListener {
     fun getCurrentThemeColors() = currentTheme.colors
 
     fun getThemeNames() = themes.map { it.name }
+
+    fun isSnowEnabled() = snowEnabled
+
+    fun setSnowEnabled(enabled: Boolean) {
+        snowEnabled = enabled
+    }
 
     private fun initPlugin() {
         setTheme(settings.themeIndex)
@@ -218,11 +224,11 @@ object ZeusThunderbolt : ApplicationActivationListener {
                     delay(remainingTime)
                 }
 
-                // Add wind update
-                updateWind()
-
-                // Add snow update
-                updateSnow()
+                // Only update wind and snow if snow is enabled
+                if (snowEnabled) {
+                    updateWind()
+                    updateSnow()
+                }
             }
         }
 
@@ -266,14 +272,12 @@ object ZeusThunderbolt : ApplicationActivationListener {
                 try {
                     defaultHandler.execute(editor, charTyped, dataContext)
 
-                    // Start snow on typing
-                    isSnowing = true
-                    lastTypingTime = System.nanoTime() * 1e-9f
-
-                    // Update typing stats
-                    lastTypingTime = System.nanoTime() * 1e-9f
-                    typeCount = (typeCount + 1).coerceAtMost(10)
-                    isSnowing = true
+                    if (snowEnabled) {
+                        // Update typing stats
+                        lastTypingTime = System.nanoTime() * 1e-9f
+                        typeCount = (typeCount + 1).coerceAtMost(10)
+                        isSnowing = true
+                    }
 
                 } catch (_: Exception) {
                 }
@@ -393,8 +397,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
     private fun generateParticles(x0: Float, y0: Float, point: Point, count: Int = 10): List<PhysicsElement> =
         (1..count).map {
-            when (random.nextFloat()) {
-                in 0.7f..0.9f -> generateSnowflake(x0, y0, point)
+            when {
+                // Only generate snowflakes if snow is enabled
+                snowEnabled && random.nextFloat() in 0.7f..0.9f -> generateSnowflake(x0, y0, point)
                 else -> generateRegularParticle(x0, y0, point)
             }
         }
