@@ -1,5 +1,12 @@
 # Zeus Thunderbolt Plugin
 
+## [1.1.2] - 2024-12-22
+
+### Changed
+
+- fix settings saving
+- snow & stardust
+
 ## [1.1.1] - 2024-12-08
 
 ### Changed

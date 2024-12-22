@@ -68,7 +68,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private var lastTypeTime = 0f             // Last time user typed
     private var typeCount = 0                 // Count of recent keystrokes
 
-    private const val DEFAULT_SNOW_ENABLED = false
+    const val DEFAULT_SNOW_ENABLED = false
     private var snowEnabled = DEFAULT_SNOW_ENABLED
 
     const val DEFAULT_REGULAR_PARTICLES_ENABLED = true
@@ -79,6 +79,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
     fun isRegularParticlesEnabled() = regularParticlesEnabled
     fun setRegularParticlesEnabled(enabled: Boolean) {
         regularParticlesEnabled = enabled
+        settings.regularParticlesEnabled = enabled
     }
     
     const val DEFAULT_STARDUST_PARTICLES_ENABLED = false
@@ -88,6 +89,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
     fun isStardustParticlesEnabled() = stardustParticlesEnabled
     fun setStardustParticlesEnabled(enabled: Boolean) {
         stardustParticlesEnabled = enabled
+        settings.stardustParticlesEnabled = enabled
     }
 
     private fun trimParticles() {
@@ -119,10 +121,14 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
     fun setSnowEnabled(enabled: Boolean) {
         snowEnabled = enabled
+        settings.snowEnabled = enabled
     }
 
     private fun initPlugin() {
         setTheme(settings.themeIndex)
+        setRegularParticlesEnabled(settings.regularParticlesEnabled)
+        setStardustParticlesEnabled(settings.stardustParticlesEnabled)
+        setSnowEnabled(settings.snowEnabled)
         val editorFactory = EditorFactory.getInstance()
         val editors = mutableListOf<Editor>()
         val lastPositions = mutableMapOf<Caret, Point>()
@@ -1191,7 +1197,16 @@ object ZeusThunderbolt : ApplicationActivationListener {
         override var chainStrength: Float = 0f,
         var twinklePhase: Float = random.nextFloat() * Math.PI.toFloat() * 2,
         var rotationAngle: Float = random.nextFloat() * Math.PI.toFloat() * 2,
-        var driftSpeed: Float = (10..30).random().toFloat()
+        var driftSpeed: Float = (10..30).random().toFloat(),
+        var colorTransitionPhase: Float = random.nextFloat() * Math.PI.toFloat() * 2,
+        var trailPoints: Array<Point2D.Float> = Array(15) { Point2D.Float() },
+        var trailIndex: Int = 0,
+        var trailSize: Int = 0,
+        var baseColor: Color = when (random.nextInt(3)) {
+            0 -> Color(255, 223, 170)  // Warm gold
+            1 -> Color(200, 255, 255)  // Ice blue
+            else -> Color(255, 200, 255)  // Pink
+        }
     ) : PhysicsElement {
         override var isDead: Boolean = false
 
@@ -1202,31 +1217,121 @@ object ZeusThunderbolt : ApplicationActivationListener {
                 return
             }
 
-            // Twinkling effect
-            twinklePhase += 8f * dt
+            // Update trail
+            trailIndex = (trailIndex + 1) % trailPoints.size
+            trailPoints[trailIndex].setLocation(x, y)
+            trailSize = (trailSize + 1).coerceAtMost(trailPoints.size)
+
+            // Color transition
+            colorTransitionPhase += dt * 0.5f
+
+            // Enhanced twinkling effect
+            twinklePhase += (8f + sin(colorTransitionPhase) * 4f) * dt
             
-            // Drifting motion
-            rotationAngle += dt
-            x += cos(rotationAngle) * driftSpeed * dt
-            y += sin(rotationAngle) * driftSpeed * dt
+            // Smooth drifting motion with spiral tendency
+            rotationAngle += dt * (0.5f + sin(twinklePhase * 0.5f) * 0.3f)
+            val spiralRadius = 30f + sin(twinklePhase * 0.3f) * 10f
+            x += (cos(rotationAngle) * spiralRadius + sin(twinklePhase * 2f) * 5f) * dt
+            y += (sin(rotationAngle) * spiralRadius + cos(twinklePhase * 2f) * 5f) * dt
+
+            // Interact with nearby stardust particles
+            for (other in elements) {
+                if (other is StardustParticle && other != this) {
+                    val dx = other.x - x
+                    val dy = other.y - y
+                    val dist = sqrt(dx * dx + dy * dy)
+                    if (dist < size * 8) {
+                        val force = 1f - (dist / (size * 8))
+                        x -= dx * force * dt * 0.5f
+                        y -= dy * force * dt * 0.5f
+                    }
+                }
+            }
         }
 
         override fun render(g: Graphics) {
             val g2d = g.create() as Graphics2D
             g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
 
-            // Twinkle effect
+            // Calculate current color based on transition phase
+            val currentColor = getTransitionedColor()
+            
+            // Draw trail with gradient
+            if (trailSize > 1) {
+                renderTrail(g2d, currentColor)
+            }
+
+            // Enhanced twinkle effect
             val twinkle = (sin(twinklePhase) * 0.5f + 0.5f)
             val alpha = (255 * lifetime / 3f * twinkle).toInt().coerceIn(0, 255)
 
-            // Draw star shape
+            // Multi-layered glow effect
+            renderGlowLayers(g2d, currentColor, alpha)
+
+            // Draw star shape with enhanced detail
+            renderStarShape(g2d, currentColor, alpha)
+
+            g2d.dispose()
+        }
+
+        private fun getTransitionedColor(): Color = Color(
+            (baseColor.red + sin(colorTransitionPhase) * 30).toInt().coerceIn(0, 255),
+            (baseColor.green + sin(colorTransitionPhase * 1.3f) * 30).toInt().coerceIn(0, 255),
+            (baseColor.blue + sin(colorTransitionPhase * 0.7f) * 30).toInt().coerceIn(0, 255)
+        )
+
+        private fun renderTrail(g2d: Graphics2D, color: Color) {
+            val path = GeneralPath()
+            var i = trailIndex
+            path.moveTo(trailPoints[i].x, trailPoints[i].y)
+            
+            repeat(trailSize) { index ->
+                val t = trailPoints[(i-- + trailPoints.size) % trailPoints.size]
+                val progress = 1f - (index.toFloat() / trailSize)
+                g2d.color = Color(
+                    color.red, color.green, color.blue,
+                    (40 * progress * (lifetime / 3f)).toInt().coerceIn(0, 255)
+                )
+                path.lineTo(t.x, t.y)
+            }
+            
+            g2d.stroke = BasicStroke(size / 4f)
+            g2d.draw(path)
+        }
+
+        private fun renderGlowLayers(g2d: Graphics2D, color: Color, alpha: Int) {
+            val numLayers = 4
+            for (i in numLayers downTo 1) {
+                val layerSize = size * (2.5f + i * 0.5f)
+                val layerAlpha = (alpha * (i.toFloat() / numLayers) * 0.3f).toInt()
+                
+                val gradient = RadialGradientPaint(
+                    x, y, layerSize,
+                    floatArrayOf(0f, 0.5f, 1f),
+                    arrayOf(
+                        Color(color.red, color.green, color.blue, layerAlpha),
+                        Color(color.red, color.green, color.blue, (layerAlpha * 0.5f).toInt()),
+                        Color(color.red, color.green, color.blue, 0)
+                    )
+                )
+                
+                g2d.paint = gradient
+                g2d.fill(Ellipse2D.Float(
+                    x - layerSize, y - layerSize,
+                    layerSize * 2, layerSize * 2
+                ))
+            }
+        }
+
+        private fun renderStarShape(g2d: Graphics2D, color: Color, alpha: Int) {
             val points = 5
             val outerRadius = size
             val innerRadius = size * 0.5f
+            val extraPoints = 2 // Additional points for more detail
             
             val path = GeneralPath()
-            for (i in 0 until points * 2) {
-                val angle = Math.PI * i / points
+            for (i in 0 until points * 2 * extraPoints) {
+                val angle = Math.PI * i / (points * extraPoints)
                 val radius = if (i % 2 == 0) outerRadius else innerRadius
                 val px = x + cos(angle) * radius
                 val py = y + sin(angle) * radius
@@ -1234,30 +1339,19 @@ object ZeusThunderbolt : ApplicationActivationListener {
             }
             path.closePath()
 
-            // Glow effect
-            val glowSize = size * 3
-            val glow = RadialGradientPaint(
-                x, y, glowSize,
-                floatArrayOf(0f, 1f),
-                arrayOf(
-                    Color(color.red, color.green, color.blue, (alpha * 0.5f).toInt()),
-                    Color(color.red, color.green, color.blue, 0)
-                )
-            )
-
-            g2d.paint = glow
-            g2d.fill(Ellipse2D.Float(x - glowSize, y - glowSize, glowSize * 2, glowSize * 2))
-
-            // Star shape
             g2d.color = Color(color.red, color.green, color.blue, alpha)
             g2d.fill(path)
 
-            g2d.dispose()
+            // Add highlight
+            g2d.color = Color(255, 255, 255, (alpha * 0.5f).toInt())
+            g2d.stroke = BasicStroke(size / 8f)
+            g2d.draw(path)
         }
 
         override fun reset() {
             isDead = false
             lifetime = 3f
+            trailSize = 0
         }
     }
 
@@ -1286,6 +1380,9 @@ private fun ClosedFloatingPointRange<Float>.random(): Float =
 
 class ThunderSettings : PersistentStateComponent<ThunderSettings> {
     var themeIndex: Int = -1 // Default to "None" theme
+    var regularParticlesEnabled: Boolean = ZeusThunderbolt.DEFAULT_REGULAR_PARTICLES_ENABLED
+    var stardustParticlesEnabled: Boolean = ZeusThunderbolt.DEFAULT_STARDUST_PARTICLES_ENABLED
+    var snowEnabled: Boolean = ZeusThunderbolt.DEFAULT_SNOW_ENABLED
 
     override fun getState(): ThunderSettings = this
 
