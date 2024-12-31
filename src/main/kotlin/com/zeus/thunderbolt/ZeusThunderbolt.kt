@@ -72,7 +72,6 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private var snowEnabled = DEFAULT_SNOW_ENABLED
 
     const val DEFAULT_REGULAR_PARTICLES_ENABLED = true
-    const val DEFAULT_FIRE_PARTICLES_ENABLED = false
 
     private var regularParticlesEnabled = DEFAULT_REGULAR_PARTICLES_ENABLED
 
@@ -137,6 +136,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
         setTheme(settings.themeIndex)
         setRegularParticlesEnabled(settings.regularParticlesEnabled)
         setStardustParticlesEnabled(settings.stardustParticlesEnabled)
+        setReverseParticlesEnabled(settings.reverseParticlesEnabled)
         setSnowEnabled(settings.snowEnabled)
         val editorFactory = EditorFactory.getInstance()
         val editors = mutableListOf<Editor>()
@@ -233,7 +233,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
                 val deadParticles = mutableListOf<Particle>()
 
                 for (e in elements) {
-                    e.update()
+                    e.update(elements)
                     if (e.isDead) {
                         deadElements += e
                         if (e is Particle) {
@@ -389,7 +389,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
         var y: Float
         var chainStrength: Float
         var isDead: Boolean
-        fun update()
+        fun update(elements: List<PhysicsElement> = emptyList())
         fun render(g: Graphics)
         fun reset()
     }
@@ -435,7 +435,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
             when {
                 snowEnabled && random.nextFloat() in 0.7f..0.9f -> generateSnowflake(x0, y0, point)
                 stardustParticlesEnabled && random.nextFloat() > 0.8f -> generateStardustParticle(x0, y0, point)
-                reverseParticlesEnabled && random.nextFloat() > 0.7f -> generateReverseParticle(x0, y0, point)
+                reverseParticlesEnabled && random.nextFloat() > 0.9f -> generateReverseParticle(x0, y0, point)
                 regularParticlesEnabled -> generateRegularParticle(x0, y0, point)
                 else -> null
             }
@@ -532,7 +532,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
     ) : PhysicsElement {
         override var isDead: Boolean = false
 
-        override fun update() {
+        override fun update(elements: List<PhysicsElement>) {
             lifetime -= dt
             if (lifetime <= 0) {
                 isDead = true
@@ -653,40 +653,35 @@ object ZeusThunderbolt : ApplicationActivationListener {
     }
 
     private fun generateReverseParticle(x0: Float, y0: Float, point: Point): ReverseParticle {
-        val simulatedParticle = generateRegularParticle(x0, y0, point)
-        val snapshots = mutableListOf<ParticleSnapshot>()
-        
-        // Simulate particle for 60 frames
-        repeat(60) { frame ->
-            // Clone current particle state
-            val frozenParticle = simulatedParticle.copy(
-                lifetime = simulatedParticle.lifetime
-            )
-            frozenParticle.isDead = false
-
-            // Save snapshot with time
-            snapshots.add(ParticleSnapshot(
-                particle = frozenParticle,
-                timeRemaining = frame / 60f
-            ))
-            
-            // Update original for next frame
-            simulatedParticle.update()
+        // Create a group of particles to simulate together
+        val particleGroup = List(10) {
+            generateRegularParticle(x0, y0, point)
         }
-        
+        val snapshots = mutableListOf<ParticleSnapshot>()
+
+        // Simulate particles together
+        val lifetime = 90
+        repeat(lifetime) { frame ->
+            // Update all particles together so they interact
+            for (particle in particleGroup) particle.update(particleGroup)
+
+            // Save snapshot of all particles
+            snapshots.add(
+                ParticleSnapshot(
+                    particles = particleGroup.map { it.copy() },
+                )
+            )
+        }
+
         return ReverseParticle(
             x0 = x0, y0 = y0,
             x = point.x.toFloat(),
             y = point.y.toFloat(),
             snapshots = snapshots.asReversed(),
-            lifetime = 1f
         )
     }
 
-    data class ParticleSnapshot(
-        val particle: Particle,
-        val timeRemaining: Float
-    )
+    data class ParticleSnapshot(val particles: List<Particle>)
 
     data class ReverseParticle(
         override var x0: Float,
@@ -694,35 +689,28 @@ object ZeusThunderbolt : ApplicationActivationListener {
         override var x: Float,
         override var y: Float,
         val snapshots: List<ParticleSnapshot>,
-        var lifetime: Float = 1f,
         override var chainStrength: Float = 0f,
-        private var currentSnapshotIndex: Int = 0
+        private var currentSnapshotIndex: Int = -1
     ) : PhysicsElement {
         override var isDead: Boolean = false
 
-        override fun update() {
-            lifetime -= dt
-            if (lifetime <= 0) {
+        override fun update(elements: List<PhysicsElement>) {
+            currentSnapshotIndex++
+            if (currentSnapshotIndex >= snapshots.size) {
                 isDead = true
                 return
-            }
-
-            // Find snapshot for current time
-            val newIndex = ((1f - lifetime) * (snapshots.size - 1)).toInt().coerceIn(0, snapshots.size - 1)
-            if (newIndex != currentSnapshotIndex) {
-                currentSnapshotIndex = newIndex
             }
         }
 
         override fun render(g: Graphics) {
-            val snapshot = snapshots[currentSnapshotIndex]
-            snapshot.particle.render(g) 
+            for (particle in snapshots[currentSnapshotIndex].particles) {
+                particle.render(g)
+            }
         }
 
         override fun reset() {
             isDead = false
-            lifetime = 1f
-            currentSnapshotIndex = 0
+            currentSnapshotIndex = -1
         }
     }
 
@@ -749,7 +737,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
     ) : PhysicsElement {
         override var isDead: Boolean = false
 
-        override fun update() {
+        override fun update(elements: List<PhysicsElement>) {
 
             // Electric vibration
             vibePhase += vibeFrequency * dt
@@ -913,7 +901,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
             return cachedColor!!
         }
 
-        override fun update() {
+        override fun update(elements: List<PhysicsElement>) {
             lifetime -= dt
             if (lifetime <= 0) {
                 isDead = true
@@ -1055,78 +1043,6 @@ object ZeusThunderbolt : ApplicationActivationListener {
         }
     }
 
-    data class FireParticle(
-        override var x0: Float,
-        override var y0: Float,
-        override var x: Float,
-        override var y: Float,
-        var size: Float,
-        var color: Color,
-        var force: Force,
-        var lifetime: Float = 1.5f,
-        override var chainStrength: Float = 0f,
-        var flickerPhase: Float = (Math.random() * Math.PI * 2).toFloat()
-    ) : PhysicsElement {
-        override var isDead: Boolean = false
-
-        override fun update() {
-            lifetime -= dt
-            if (lifetime <= 0) {
-                isDead = true
-                return
-            }
-
-            // Rising motion
-            force.y -= 150f * dt
-
-            // Sideways drift
-            force.x += (random.nextFloat() - 0.5f) * 50f
-
-            // Update position
-            x += force.x * dt
-            y += force.y * dt
-
-            // Apply drag
-            force.x *= 0.97f
-            force.y *= 0.97f
-
-            // Flicker effect
-            flickerPhase += 10f * dt
-        }
-
-        override fun render(g: Graphics) {
-            val g2d = g.create() as Graphics2D
-            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-
-            // Calculate flicker and life progress
-            val flicker = 0.7f + 0.3f * sin(flickerPhase)
-            val lifeProgress = (lifetime / 1.5f).coerceIn(0f, 1f)
-
-            // Create gradient for fire effect
-            val center = Point2D.Float(x, y)
-            val radius = size * 2f
-            val gradient = RadialGradientPaint(
-                center,
-                radius,
-                floatArrayOf(0f, 0.7f, 1f),
-                arrayOf(
-                    Color(255, 255, 200, (255 * lifeProgress * flicker).toInt()),
-                    Color(255, 128, 0, (200 * lifeProgress * flicker).toInt()),
-                    Color(255, 0, 0, 0)
-                )
-            )
-
-            g2d.paint = gradient
-            g2d.fill(Ellipse2D.Float(x - radius, y - radius, radius * 2, radius * 2))
-            g2d.dispose()
-        }
-
-        override fun reset() {
-            isDead = false
-            lifetime = 1.5f
-        }
-    }
-
     data class StardustParticle(
         override var x0: Float,
         override var y0: Float,
@@ -1154,7 +1070,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
     ) : PhysicsElement {
         override var isDead: Boolean = false
 
-        override fun update() {
+        override fun update(elements: List<PhysicsElement>) {
             lifetime -= dt
             if (lifetime <= 0) {
                 isDead = true
