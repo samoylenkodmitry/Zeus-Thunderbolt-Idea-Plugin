@@ -149,9 +149,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
                 if (event.oldLength > 0 && event.newLength == 0 && reverseParticlesEnabled) {
                     // This is a deletion event
                     val editor = editorFactory.getEditors(event.document).firstOrNull() ?: return
-                    val offset = event.offset
-                    val visualPos = editor.offsetToVisualPosition(offset)
-                    val point = editor.visualPositionToXY(visualPos)
+                    val point = event.getPoint(editor)
                     val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
                     val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
                     
@@ -361,6 +359,14 @@ object ZeusThunderbolt : ApplicationActivationListener {
             val location = editor.scrollingModel.visibleArea.location
             translate(-location.x, -location.y)
         }
+
+    private fun Editor.getPoint(event: DocumentEvent): Point =
+        visualPositionToXY(offsetToVisualPosition(event.offset)).apply {
+            val location = scrollingModel.visibleArea.location
+            translate(-location.x, -location.y)
+        }
+
+    private fun DocumentEvent.getPoint(editor: Editor): Point = editor.getPoint(this)
 
     private fun updateWind() {
         windTimer += dt
