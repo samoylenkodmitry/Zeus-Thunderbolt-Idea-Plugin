@@ -1,5 +1,11 @@
 # Zeus Thunderbolt Plugin
 
+## [1.1.3] - 2024-12-31
+
+### Changed
+
+- reverse effect
+
 ## [1.1.2] - 2024-12-22
 
 ### Changed
