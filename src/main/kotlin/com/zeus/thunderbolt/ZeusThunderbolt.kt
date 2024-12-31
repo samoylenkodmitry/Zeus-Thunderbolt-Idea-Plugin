@@ -92,6 +92,15 @@ object ZeusThunderbolt : ApplicationActivationListener {
         settings.stardustParticlesEnabled = enabled
     }
 
+    const val DEFAULT_REVERSE_PARTICLES_ENABLED = false
+    private var reverseParticlesEnabled = DEFAULT_REVERSE_PARTICLES_ENABLED
+
+    fun isReverseParticlesEnabled() = reverseParticlesEnabled
+    fun setReverseParticlesEnabled(enabled: Boolean) {
+        reverseParticlesEnabled = enabled
+        settings.reverseParticlesEnabled = enabled
+    }
+
     private fun trimParticles() {
         if (elements.size > maxParticles) {
             elements.subList(0, elements.size - maxParticles).clear()
@@ -426,6 +435,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
             when {
                 snowEnabled && random.nextFloat() in 0.7f..0.9f -> generateSnowflake(x0, y0, point)
                 stardustParticlesEnabled && random.nextFloat() > 0.8f -> generateStardustParticle(x0, y0, point)
+                reverseParticlesEnabled && random.nextFloat() > 0.7f -> generateReverseParticle(x0, y0, point)
                 regularParticlesEnabled -> generateRegularParticle(x0, y0, point)
                 else -> null
             }
@@ -642,6 +652,80 @@ object ZeusThunderbolt : ApplicationActivationListener {
         }
     }
 
+    private fun generateReverseParticle(x0: Float, y0: Float, point: Point): ReverseParticle {
+        val simulatedParticle = generateRegularParticle(x0, y0, point)
+        val snapshots = mutableListOf<ParticleSnapshot>()
+        
+        // Simulate particle for 60 frames
+        repeat(60) { frame ->
+            // Clone current particle state
+            val frozenParticle = simulatedParticle.copy(
+                lifetime = simulatedParticle.lifetime
+            )
+            frozenParticle.isDead = false
+
+            // Save snapshot with time
+            snapshots.add(ParticleSnapshot(
+                particle = frozenParticle,
+                timeRemaining = frame / 60f
+            ))
+            
+            // Update original for next frame
+            simulatedParticle.update()
+        }
+        
+        return ReverseParticle(
+            x0 = x0, y0 = y0,
+            x = point.x.toFloat(),
+            y = point.y.toFloat(),
+            snapshots = snapshots.asReversed(),
+            lifetime = 1f
+        )
+    }
+
+    data class ParticleSnapshot(
+        val particle: Particle,
+        val timeRemaining: Float
+    )
+
+    data class ReverseParticle(
+        override var x0: Float,
+        override var y0: Float,
+        override var x: Float,
+        override var y: Float,
+        val snapshots: List<ParticleSnapshot>,
+        var lifetime: Float = 1f,
+        override var chainStrength: Float = 0f,
+        private var currentSnapshotIndex: Int = 0
+    ) : PhysicsElement {
+        override var isDead: Boolean = false
+
+        override fun update() {
+            lifetime -= dt
+            if (lifetime <= 0) {
+                isDead = true
+                return
+            }
+
+            // Find snapshot for current time
+            val newIndex = ((1f - lifetime) * (snapshots.size - 1)).toInt().coerceIn(0, snapshots.size - 1)
+            if (newIndex != currentSnapshotIndex) {
+                currentSnapshotIndex = newIndex
+            }
+        }
+
+        override fun render(g: Graphics) {
+            val snapshot = snapshots[currentSnapshotIndex]
+            snapshot.particle.render(g) 
+        }
+
+        override fun reset() {
+            isDead = false
+            lifetime = 1f
+            currentSnapshotIndex = 0
+        }
+    }
+
     data class Force(var x: Float, var y: Float)
 
     data class ChainParticle(
@@ -787,9 +871,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
         var isDarkGlow: Boolean = false
     ) : PhysicsElement {
         override var isDead: Boolean = false
-        private val trail: Array<Point2D.Float> = Array(10) { Point2D.Float() }
-        private var trailIndex: Int = -1
-        private var trailSize: Int = 0
+        val trail: Array<Point2D.Float> = Array(10) { Point2D.Float() }
+        var trailIndex: Int = -1
+        var trailSize: Int = 0
         private var cachedColor: Color? = null
         private var cachedLifeProgress = -1f
 
@@ -1285,6 +1369,7 @@ class ThunderSettings : PersistentStateComponent<ThunderSettings> {
     var regularParticlesEnabled: Boolean = ZeusThunderbolt.DEFAULT_REGULAR_PARTICLES_ENABLED
     var stardustParticlesEnabled: Boolean = ZeusThunderbolt.DEFAULT_STARDUST_PARTICLES_ENABLED
     var snowEnabled: Boolean = ZeusThunderbolt.DEFAULT_SNOW_ENABLED
+    var reverseParticlesEnabled: Boolean = ZeusThunderbolt.DEFAULT_REVERSE_PARTICLES_ENABLED
 
     override fun getState(): ThunderSettings = this
 

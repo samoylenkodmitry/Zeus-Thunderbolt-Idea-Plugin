@@ -23,7 +23,8 @@ class SettingsUI : Configurable {
             component.themeIndex != ZeusThunderbolt.getCurrentThemeIndex() ||
             component.snowEnabled != ZeusThunderbolt.isSnowEnabled() ||
             component.regularParticlesEnabled != ZeusThunderbolt.isRegularParticlesEnabled() ||
-            component.stardustParticlesEnabled != ZeusThunderbolt.isStardustParticlesEnabled()
+            component.stardustParticlesEnabled != ZeusThunderbolt.isStardustParticlesEnabled() ||
+            component.reverseParticlesEnabled != ZeusThunderbolt.isReverseParticlesEnabled()
         } ?: false
 
     override fun apply() {
@@ -32,6 +33,7 @@ class SettingsUI : Configurable {
             ZeusThunderbolt.setSnowEnabled(component.snowEnabled)
             ZeusThunderbolt.setRegularParticlesEnabled(component.regularParticlesEnabled)
             ZeusThunderbolt.setStardustParticlesEnabled(component.stardustParticlesEnabled)
+            ZeusThunderbolt.setReverseParticlesEnabled(component.reverseParticlesEnabled)
         }
     }
 
@@ -41,6 +43,7 @@ class SettingsUI : Configurable {
             component.snowEnabled = ZeusThunderbolt.isSnowEnabled()
             component.regularParticlesEnabled = ZeusThunderbolt.isRegularParticlesEnabled()
             component.stardustParticlesEnabled = ZeusThunderbolt.isStardustParticlesEnabled()
+            component.reverseParticlesEnabled = ZeusThunderbolt.isReverseParticlesEnabled()
         }
     }
 
@@ -54,6 +57,7 @@ class ThunderSettingsComponent {
     private val snowCheckbox = JBCheckBox("Enable Snow Effect", ZeusThunderbolt.isSnowEnabled())
     private val regularParticlesCheckbox = JBCheckBox("Enable Regular Particles", ZeusThunderbolt.isRegularParticlesEnabled())
     private val stardustParticlesCheckbox = JBCheckBox("Enable Stardust Particles", ZeusThunderbolt.isStardustParticlesEnabled())
+    private val reverseParticlesCheckbox = JBCheckBox("Enable Reverse Particles", ZeusThunderbolt.isReverseParticlesEnabled())
     val panel: JPanel
 
     init {
@@ -63,6 +67,7 @@ class ThunderSettingsComponent {
             .addComponent(regularParticlesCheckbox)
             .addComponent(stardustParticlesCheckbox)
             .addComponent(snowCheckbox)
+            .addComponent(reverseParticlesCheckbox)
             .addComponentFillVertically(JPanel(), 0)
             .panel
     }
@@ -89,5 +94,11 @@ class ThunderSettingsComponent {
         get() = stardustParticlesCheckbox.isSelected
         set(value) {
             stardustParticlesCheckbox.isSelected = value
+        }
+
+    var reverseParticlesEnabled: Boolean
+        get() = reverseParticlesCheckbox.isSelected
+        set(value) {
+            reverseParticlesCheckbox.isSelected = value
         }
 }
