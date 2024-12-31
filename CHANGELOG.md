@@ -1,5 +1,7 @@
 # Zeus Thunderbolt Plugin
 
+## [Unreleased]
+
 ## [1.1.4] - 2024-12-31
 
 ### Changed
@@ -56,10 +58,20 @@
 
 - Werks
 
-## [Unreleased]
-
 ## [0.0.1] - 2024-11-17
 
 ### Changed
 
 - This verifier is ugly noncence
+
+[Unreleased]: https://github.com/samoylenkodmitry/Zeus-Thunderbolt-Idea-Plugin/compare/v1.1.4...HEAD
+[1.1.4]: https://github.com/samoylenkodmitry/Zeus-Thunderbolt-Idea-Plugin/compare/v1.1.3...v1.1.4
+[1.1.3]: https://github.com/samoylenkodmitry/Zeus-Thunderbolt-Idea-Plugin/compare/v1.1.2...v1.1.3
+[1.1.2]: https://github.com/samoylenkodmitry/Zeus-Thunderbolt-Idea-Plugin/compare/v1.1.1...v1.1.2
+[1.1.1]: https://github.com/samoylenkodmitry/Zeus-Thunderbolt-Idea-Plugin/compare/v1.1.0...v1.1.1
+[1.1.0]: https://github.com/samoylenkodmitry/Zeus-Thunderbolt-Idea-Plugin/compare/v1.0.4...v1.1.0
+[1.0.4]: https://github.com/samoylenkodmitry/Zeus-Thunderbolt-Idea-Plugin/compare/v1.0.3...v1.0.4
+[1.0.3]: https://github.com/samoylenkodmitry/Zeus-Thunderbolt-Idea-Plugin/compare/v1.0.2...v1.0.3
+[1.0.2]: https://github.com/samoylenkodmitry/Zeus-Thunderbolt-Idea-Plugin/compare/v1.0.1...v1.0.2
+[1.0.1]: https://github.com/samoylenkodmitry/Zeus-Thunderbolt-Idea-Plugin/compare/v0.0.1...v1.0.1
+[0.0.1]: https://github.com/samoylenkodmitry/Zeus-Thunderbolt-Idea-Plugin/commits/v0.0.1
