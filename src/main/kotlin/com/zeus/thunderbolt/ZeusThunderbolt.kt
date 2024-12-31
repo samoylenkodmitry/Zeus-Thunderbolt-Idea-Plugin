@@ -290,6 +290,11 @@ object ZeusThunderbolt : ApplicationActivationListener {
                     updateWind()
                     updateSnow()
                 }
+
+                ApplicationManager.getApplication().invokeLater {
+                    containers.values.forEach { it.repaint() }
+                }
+                delay(16)
             }
         }
 
@@ -461,7 +466,6 @@ object ZeusThunderbolt : ApplicationActivationListener {
             when {
                 snowEnabled && random.nextFloat() in 0.7f..0.9f -> generateSnowflake(x0, y0, point)
                 stardustParticlesEnabled && random.nextFloat() > 0.8f -> generateStardustParticle(x0, y0, point)
-                reverseParticlesEnabled && random.nextFloat() > 0.99f -> generateReverseParticle(x0, y0, point)
                 regularParticlesEnabled -> generateRegularParticle(x0, y0, point)
                 else -> null
             }
@@ -694,7 +698,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
             // Save snapshot of all particles
             snapshots.add(
                 ParticleSnapshot(
-                    particles = particleGroup.map { it.copy() },
+                    particles = particleGroup.map { it.makeSnapshot() },
                 )
             )
         }
@@ -884,12 +888,18 @@ object ZeusThunderbolt : ApplicationActivationListener {
         override var chainStrength: Float = 0f,  // Regular particles don't form chains
         var isDarkGlow: Boolean = false
     ) : PhysicsElement {
-        override var isDead: Boolean = false
         val trail: Array<Point2D.Float> = Array(10) { Point2D.Float() }
         var trailIndex: Int = -1
         var trailSize: Int = 0
+        override var isDead: Boolean = false
         private var cachedColor: Color? = null
         private var cachedLifeProgress = -1f
+
+        fun makeSnapshot() = copy().also {
+            for ((i, p) in it.trail.withIndex()) p.setLocation(trail[i])
+            it.trailIndex = trailIndex
+            it.trailSize = trailSize
+        }
 
         override fun reset() {
             isDead = false
