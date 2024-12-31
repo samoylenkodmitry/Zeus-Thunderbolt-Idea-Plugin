@@ -720,7 +720,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
         override var y: Float,
         val snapshots: List<ParticleSnapshot>,
         override var chainStrength: Float = 0f,
-        private var currentSnapshotIndex: Int = -1
+        private var currentSnapshotIndex: Int = 0
     ) : PhysicsElement {
         override var isDead: Boolean = false
 
@@ -733,6 +733,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
         }
 
         override fun render(g: Graphics) {
+            if (currentSnapshotIndex < 0 || currentSnapshotIndex >= snapshots.size) return
             for (particle in snapshots[currentSnapshotIndex].particles) {
                 particle.render(g)
             }
