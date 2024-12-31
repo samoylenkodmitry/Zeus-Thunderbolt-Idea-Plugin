@@ -142,6 +142,31 @@ object ZeusThunderbolt : ApplicationActivationListener {
         val editors = mutableListOf<Editor>()
         val lastPositions = mutableMapOf<Caret, Point>()
         val currEditorObj = AtomicInteger(0)
+
+        // Add document listener to track deletions
+        val documentListener = object : DocumentListener {
+            override fun beforeDocumentChange(event: DocumentEvent) {
+                if (event.oldLength > 0 && event.newLength == 0 && reverseParticlesEnabled) {
+                    // This is a deletion event
+                    val editor = editorFactory.getEditors(event.document).firstOrNull() ?: return
+                    val offset = event.offset
+                    val visualPos = editor.offsetToVisualPosition(offset)
+                    val point = editor.visualPositionToXY(visualPos)
+                    val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
+                    val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
+                    
+                    // Create reverse particles at deletion point
+                    val reverseParticles = generateReverseParticle(
+                        x0 = scrollOffsetX,
+                        y0 = scrollOffsetY,
+                        point = point
+                    )
+                    elements += reverseParticles
+                    trimParticles()
+                }
+            }
+        }
+
         val trackCarets = lambda@{ event: CaretEvent ->
             val editor = event.editor
             currEditorObj.set(System.identityHashCode(editor))
@@ -187,6 +212,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
             }
         }
         val app = ApplicationManager.getApplication()
+        EditorFactory.getInstance().eventMulticaster.addDocumentListener(documentListener, app)
         EditorFactory.getInstance().eventMulticaster.addCaretListener(caretListener, app)
 
         class ElementsContainer(val editor: Editor) : JComponent() {
@@ -435,7 +461,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
             when {
                 snowEnabled && random.nextFloat() in 0.7f..0.9f -> generateSnowflake(x0, y0, point)
                 stardustParticlesEnabled && random.nextFloat() > 0.8f -> generateStardustParticle(x0, y0, point)
-                reverseParticlesEnabled && random.nextFloat() > 0.9f -> generateReverseParticle(x0, y0, point)
+                reverseParticlesEnabled && random.nextFloat() > 0.99f -> generateReverseParticle(x0, y0, point)
                 regularParticlesEnabled -> generateRegularParticle(x0, y0, point)
                 else -> null
             }
