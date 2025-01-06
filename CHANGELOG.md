@@ -1,5 +1,11 @@
 # Zeus Thunderbolt Plugin
 
+## [1.1.6] - 2025-01-06
+
+### Changed
+
+- butterfly effect
+
 ## [1.1.5] - 2024-12-31
 
 ### Changed
