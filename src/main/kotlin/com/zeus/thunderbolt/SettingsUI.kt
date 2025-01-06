@@ -24,7 +24,8 @@ class SettingsUI : Configurable {
             component.snowEnabled != ZeusThunderbolt.isSnowEnabled() ||
             component.regularParticlesEnabled != ZeusThunderbolt.isRegularParticlesEnabled() ||
             component.stardustParticlesEnabled != ZeusThunderbolt.isStardustParticlesEnabled() ||
-            component.reverseParticlesEnabled != ZeusThunderbolt.isReverseParticlesEnabled()
+            component.reverseParticlesEnabled != ZeusThunderbolt.isReverseParticlesEnabled() ||
+            component.butterflyParticlesEnabled != ZeusThunderbolt.isButterfliesEnabled()
         } ?: false
 
     override fun apply() {
@@ -34,6 +35,7 @@ class SettingsUI : Configurable {
             ZeusThunderbolt.setRegularParticlesEnabled(component.regularParticlesEnabled)
             ZeusThunderbolt.setStardustParticlesEnabled(component.stardustParticlesEnabled)
             ZeusThunderbolt.setReverseParticlesEnabled(component.reverseParticlesEnabled)
+            ZeusThunderbolt.setButterfliesEnabled(component.butterflyParticlesEnabled)
         }
     }
 
@@ -44,6 +46,7 @@ class SettingsUI : Configurable {
             component.regularParticlesEnabled = ZeusThunderbolt.isRegularParticlesEnabled()
             component.stardustParticlesEnabled = ZeusThunderbolt.isStardustParticlesEnabled()
             component.reverseParticlesEnabled = ZeusThunderbolt.isReverseParticlesEnabled()
+            component.butterflyParticlesEnabled = ZeusThunderbolt.isButterfliesEnabled()
         }
     }
 
@@ -58,6 +61,7 @@ class ThunderSettingsComponent {
     private val regularParticlesCheckbox = JBCheckBox("Enable Regular Particles", ZeusThunderbolt.isRegularParticlesEnabled())
     private val stardustParticlesCheckbox = JBCheckBox("Enable Stardust Particles", ZeusThunderbolt.isStardustParticlesEnabled())
     private val reverseParticlesCheckbox = JBCheckBox("Enable Reverse Particles", ZeusThunderbolt.isReverseParticlesEnabled())
+    private val butterflyParticlesCheckbox = JBCheckBox("Enable Butterfly Particles", ZeusThunderbolt.isButterfliesEnabled())
     val panel: JPanel
 
     init {
@@ -68,6 +72,7 @@ class ThunderSettingsComponent {
             .addComponent(stardustParticlesCheckbox)
             .addComponent(snowCheckbox)
             .addComponent(reverseParticlesCheckbox)
+            .addComponent(butterflyParticlesCheckbox)
             .addComponentFillVertically(JPanel(), 0)
             .panel
     }
@@ -100,5 +105,11 @@ class ThunderSettingsComponent {
         get() = reverseParticlesCheckbox.isSelected
         set(value) {
             reverseParticlesCheckbox.isSelected = value
+        }
+
+    var butterflyParticlesEnabled: Boolean
+        get() = butterflyParticlesCheckbox.isSelected
+        set(value) {
+            butterflyParticlesCheckbox.isSelected = value
         }
 }

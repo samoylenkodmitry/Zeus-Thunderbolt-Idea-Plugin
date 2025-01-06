@@ -29,6 +29,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.*
 import java.awt.geom.Ellipse2D
+import java.awt.geom.Path2D
 import kotlin.math.abs
 
 object ZeusThunderbolt : ApplicationActivationListener {
@@ -100,6 +101,15 @@ object ZeusThunderbolt : ApplicationActivationListener {
         settings.reverseParticlesEnabled = enabled
     }
 
+    const val DEFAULT_BUTTERFLY_PARTICLES_ENABLED = false
+    private var butterflyParticlesEnabled = DEFAULT_BUTTERFLY_PARTICLES_ENABLED
+
+    fun isButterfliesEnabled() = butterflyParticlesEnabled
+    fun setButterfliesEnabled(enabled: Boolean) {
+        butterflyParticlesEnabled = enabled
+        settings.butterflyParticlesEnabled = enabled
+    }
+
     private fun trimParticles() {
         if (elements.size > maxParticles) {
             elements.subList(0, elements.size - maxParticles).clear()
@@ -138,6 +148,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
         setStardustParticlesEnabled(settings.stardustParticlesEnabled)
         setReverseParticlesEnabled(settings.reverseParticlesEnabled)
         setSnowEnabled(settings.snowEnabled)
+        setButterfliesEnabled(settings.butterflyParticlesEnabled)
         val editorFactory = EditorFactory.getInstance()
         val editors = mutableListOf<Editor>()
         val lastPositions = mutableMapOf<Caret, Point>()
@@ -149,7 +160,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
                 if (event.oldLength > 0 && event.newLength == 0 && reverseParticlesEnabled) {
                     // This is a deletion event
                     val editor = editorFactory.getEditors(event.document).firstOrNull() ?: return
-                    val point = event.getPoint(editor)
+                    val offset = event.offset
+                    val visualPos = editor.offsetToVisualPosition(offset)
+                    val point = editor.visualPositionToXY(visualPos)
                     val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
                     val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
                     
@@ -360,14 +373,6 @@ object ZeusThunderbolt : ApplicationActivationListener {
             translate(-location.x, -location.y)
         }
 
-    private fun Editor.getPoint(event: DocumentEvent): Point =
-        visualPositionToXY(offsetToVisualPosition(event.offset)).apply {
-            val location = scrollingModel.visibleArea.location
-            translate(-location.x, -location.y)
-        }
-
-    private fun DocumentEvent.getPoint(editor: Editor): Point = editor.getPoint(this)
-
     private fun updateWind() {
         windTimer += dt
         if (windTimer >= WIND_CHANGE_INTERVAL) {
@@ -472,6 +477,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
             when {
                 snowEnabled && random.nextFloat() in 0.7f..0.9f -> generateSnowflake(x0, y0, point)
                 stardustParticlesEnabled && random.nextFloat() > 0.8f -> generateStardustParticle(x0, y0, point)
+                butterflyParticlesEnabled && random.nextFloat() > 0.95f -> generateButterfly(x0, y0, point)
                 regularParticlesEnabled -> generateRegularParticle(x0, y0, point)
                 else -> null
             }
@@ -540,6 +546,28 @@ object ZeusThunderbolt : ApplicationActivationListener {
         trailLength = (15..25).random(),  // Longer trails
         driftSpeed = (8..20).random().toFloat()  // Slower, more graceful movement
     )
+
+    private fun generateButterfly(x0: Float, y0: Float, point: Point): Butterfly {
+        val baseColor = when (random.nextInt(5)) {
+            0 -> Color(255, 100, 100)  // Red
+            1 -> Color(100, 100, 255)  // Blue
+            2 -> Color(255, 200, 100)  // Orange
+            3 -> Color(200, 100, 255)  // Purple
+            else -> Color(100, 255, 100)  // Green
+        }
+        
+        return Butterfly(
+            x0 = x0,
+            y0 = y0,
+            x = point.x.toFloat(),
+            y = point.y.toFloat(),
+            size = (8..12).random().toFloat(),
+            color = baseColor,
+            wingSpan = (15..25).random().toFloat(),
+            flapSpeed = (4..7).random().toFloat(),
+            lifetime = (5..8).random().toFloat()
+        )
+    }
 
     data class Snowflake(
         override var x0: Float,
@@ -1300,6 +1328,211 @@ object ZeusThunderbolt : ApplicationActivationListener {
         }
     }
 
+    data class Butterfly(
+        override var x0: Float,
+        override var y0: Float,
+        override var x: Float,
+        override var y: Float,
+        var size: Float,
+        var color: Color,
+        var wingSpan: Float,
+        var flapSpeed: Float,
+        var lifetime: Float,
+        override var chainStrength: Float = 0f,
+        var flapPhase: Float = random.nextFloat() * Math.PI.toFloat() * 2,
+        var pathPhase: Float = random.nextFloat() * Math.PI.toFloat() * 2,
+        var pathRadius: Float = (30..50).random().toFloat(),
+        var pathSpeed: Float = (1..2).random().toFloat(),
+        var verticalPhase: Float = random.nextFloat() * Math.PI.toFloat() * 2,
+        var verticalSpeed: Float = (0.5f..1.5f).random()
+    ) : PhysicsElement {
+        override var isDead: Boolean = false
+
+        override fun update(elements: List<PhysicsElement>) {
+            lifetime -= dt
+            if (lifetime <= 0) {
+                isDead = true
+                return
+            }
+
+            // Wing flapping animation
+            flapPhase += flapSpeed * dt
+
+            // Complex flight path combining circular and vertical motion
+            pathPhase += pathSpeed * dt
+            verticalPhase += verticalSpeed * dt
+
+            // Calculate new position using Lissajous curve for more interesting motion
+            x += (cos(pathPhase) * pathRadius * dt + sin(pathPhase * 0.5f) * 10f * dt)
+            y += (sin(pathPhase * 0.7f) * pathRadius * 0.5f * dt + sin(verticalPhase) * 15f * dt)
+
+            // Add slight random movement
+            if (random.nextFloat() > 0.95f) {
+                x += (-5..5).random()
+                y += (-5..5).random()
+            }
+        }
+
+        override fun render(g: Graphics) {
+            val g2d = g.create() as Graphics2D
+            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+
+            // Calculate alpha based on lifetime
+            val alpha = (255 * (lifetime / 8f)).toInt().coerceIn(0, 255)
+            
+            // Save original transform
+            val originalTransform = g2d.transform
+            
+            // Move to butterfly position
+            g2d.translate(x.toDouble(), y.toDouble())
+
+            // Draw wings - flap from center axis
+            val leftWingAngle = sin(flapPhase) * Math.PI.toFloat() * 0.3f
+            val rightWingAngle = -leftWingAngle  // Opposite flap for symmetric motion
+
+            // Draw left wing
+            val leftWing = Path2D.Float()
+            g2d.transform = originalTransform
+            g2d.translate(x.toDouble(), y.toDouble())
+            g2d.rotate(leftWingAngle*1.0)
+            createWingPath(leftWing, -1)
+            g2d.paint = createWingGradient(alpha)
+            g2d.fill(leftWing)
+            drawWingPatterns(g2d, leftWing, alpha)
+
+            // Draw right wing
+            val rightWing = Path2D.Float()
+            g2d.transform = originalTransform
+            g2d.translate(x.toDouble(), y.toDouble())
+            g2d.rotate(rightWingAngle*1.0)
+            createWingPath(rightWing, 1)
+            g2d.paint = createWingGradient(alpha)
+            g2d.fill(rightWing)
+            drawWingPatterns(g2d, rightWing, alpha)
+
+            // Reset transform and draw body
+            g2d.transform = originalTransform
+            g2d.translate(x.toDouble(), y.toDouble())
+            drawBody(g2d, alpha)
+
+            g2d.dispose()
+        }
+
+        private fun createWingGradient(alpha: Int): Paint {
+            return RadialGradientPaint(
+                0f, 0f, wingSpan,
+                floatArrayOf(0.4f, 0.7f, 1f),
+                arrayOf(
+                    Color(color.red, color.green, color.blue, alpha),
+                    Color(color.red / 2, color.green / 2, color.blue / 2, alpha),
+                    Color(color.red / 3, color.green / 3, color.blue / 3, (alpha * 0.7f).toInt())
+                )
+            )
+        }
+        
+        private fun createWingPath(path: Path2D.Float, direction: Int) {
+            val dir = direction.toFloat()
+            
+            // Main wing shape
+            path.moveTo(0f, 0f)
+            path.curveTo(
+                dir * wingSpan * 0.2f, -size * 0.5f,  // Control point 1
+                dir * wingSpan * 0.6f, -size * 0.8f,  // Control point 2
+                dir * wingSpan * 0.8f, -size * 0.3f   // End point
+            )
+            path.curveTo(
+                dir * wingSpan * 0.9f, size * 0.2f,   // Control point 1
+                dir * wingSpan * 0.7f, size * 0.6f,   // Control point 2
+                dir * wingSpan * 0.3f, size * 0.4f    // End point
+            )
+            path.curveTo(
+                dir * wingSpan * 0.1f, size * 0.2f,   // Control point 1
+                0f, size * 0.1f,                      // Control point 2
+                0f, 0f                                // Back to start
+            )
+        }
+
+        private fun drawWingPatterns(g2d: Graphics2D, wing: Path2D.Float, alpha: Int) {
+            // Draw spots and patterns
+            g2d.color = Color(
+                (color.red * 0.7f).toInt(),
+                (color.green * 0.7f).toInt(),
+                (color.blue * 0.7f).toInt(),
+                (alpha * 0.5f).toInt()
+            )
+            
+            // Add circular patterns
+            for (i in 0..2) {
+                val spotX = wingSpan * (0.3f + i * 0.2f)
+                val spotY = size * (0.2f - i * 0.15f)
+                g2d.fillOval(
+                    (spotX - size * 0.15f).toInt(),
+                    (spotY - size * 0.15f).toInt(),
+                    (size * 0.3f).toInt(),
+                    (size * 0.3f).toInt()
+                )
+            }
+        }
+
+        private fun drawBody(g2d: Graphics2D, alpha: Int) {
+            // Draw thorax (main body)
+            g2d.color = Color(
+                color.red / 3,
+                color.green / 3,
+                color.blue / 3,
+                alpha
+            )
+            
+            // Draw head
+            g2d.fillOval(
+                (-size / 3).toInt(),
+                (-size * 0.8f).toInt(),
+                (size * 0.6f).toInt(),
+                (size * 0.6f).toInt()
+            )
+            
+            // Draw body segments
+            val bodyPath = Path2D.Float()
+            bodyPath.moveTo(0f, -size * 0.5f)
+            bodyPath.curveTo(
+                size * 0.2f, 0f,         // Control point 1
+                size * 0.15f, size,      // Control point 2
+                0f, size * 1.2f          // End point
+            )
+            bodyPath.curveTo(
+                -size * 0.15f, size,     // Control point 1
+                -size * 0.2f, 0f,        // Control point 2
+                0f, -size * 0.5f         // Back to start
+            )
+            g2d.fill(bodyPath)
+
+            // Draw antennae
+            g2d.stroke = BasicStroke(size / 8f)
+            val antennaPath = Path2D.Float()
+            antennaPath.moveTo(-size * 0.2f, -size * 0.7f)
+            antennaPath.curveTo(
+                -size * 0.4f, -size * 1.2f,
+                -size * 0.6f, -size * 1.3f,
+                -size * 0.7f, -size * 1.4f
+            )
+            g2d.draw(antennaPath)
+            
+            antennaPath.reset()
+            antennaPath.moveTo(size * 0.2f, -size * 0.7f)
+            antennaPath.curveTo(
+                size * 0.4f, -size * 1.2f,
+                size * 0.6f, -size * 1.3f,
+                size * 0.7f, -size * 1.4f
+            )
+            g2d.draw(antennaPath)
+        }
+
+        override fun reset() {
+            isDead = false
+            lifetime = (5..8).random().toFloat()
+        }
+    }
+
     // Add force field effect
     fun applyForceField(particle: Particle) {
         val fieldStrength = 50f
@@ -1329,6 +1562,7 @@ class ThunderSettings : PersistentStateComponent<ThunderSettings> {
     var stardustParticlesEnabled: Boolean = ZeusThunderbolt.DEFAULT_STARDUST_PARTICLES_ENABLED
     var snowEnabled: Boolean = ZeusThunderbolt.DEFAULT_SNOW_ENABLED
     var reverseParticlesEnabled: Boolean = ZeusThunderbolt.DEFAULT_REVERSE_PARTICLES_ENABLED
+    var butterflyParticlesEnabled: Boolean = ZeusThunderbolt.DEFAULT_BUTTERFLY_PARTICLES_ENABLED
 
     override fun getState(): ThunderSettings = this
 
