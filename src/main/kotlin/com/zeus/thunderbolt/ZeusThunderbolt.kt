@@ -548,24 +548,62 @@ object ZeusThunderbolt : ApplicationActivationListener {
     )
 
     private fun generateButterfly(x0: Float, y0: Float, point: Point): Butterfly {
-        val baseColor = when (random.nextInt(5)) {
-            0 -> Color(255, 100, 100)  // Red
-            1 -> Color(100, 100, 255)  // Blue
-            2 -> Color(255, 200, 100)  // Orange
-            3 -> Color(200, 100, 255)  // Purple
-            else -> Color(100, 255, 100)  // Green
+        // Create more realistic butterfly color combinations
+        val (mainColor, spotColor, patternColor) = when (random.nextInt(8)) {
+            0 -> Triple(  // Monarch
+                Color(255, 140, 0),  // Orange
+                Color(0, 0, 0),      // Black
+                Color(255, 255, 255) // White
+            )
+            1 -> Triple(  // Blue Morpho
+                Color(0, 150, 255),  // Blue
+                Color(0, 100, 200),  // Dark blue
+                Color(200, 230, 255) // Light blue
+            )
+            2 -> Triple(  // Swallowtail
+                Color(255, 255, 0),  // Yellow
+                Color(0, 0, 0),      // Black
+                Color(255, 255, 255) // White
+            )
+            3 -> Triple(  // Painted Lady
+                Color(255, 165, 0),  // Orange
+                Color(0, 0, 0),      // Black
+                Color(255, 255, 255) // White
+            )
+            4 -> Triple(  // Red Admiral
+                Color(255, 0, 0),    // Red
+                Color(0, 0, 0),      // Black
+                Color(255, 255, 255) // White
+            )
+            5 -> Triple(  // Zebra Longwing
+                Color(255, 255, 255),// White
+                Color(0, 0, 0),      // Black
+                Color(255, 255, 255) // White
+            )
+            6 -> Triple(  // Great Purple Hairstreak
+                Color(128, 0, 128),  // Purple
+                Color(0, 0, 0),      // Black
+                Color(255, 255, 255) // White
+            )
+            else -> Triple(  // Common Buckeye
+                Color(139, 69, 19),  // Brown
+                Color(0, 0, 0),      // Black
+                Color(255, 255, 255) // White
+            )
         }
-        
+
         return Butterfly(
             x0 = x0,
             y0 = y0,
             x = point.x.toFloat(),
             y = point.y.toFloat(),
             size = (8..12).random().toFloat(),
-            color = baseColor,
+            color = mainColor,
             wingSpan = (15..25).random().toFloat(),
-            flapSpeed = (4..7).random().toFloat(),
-            lifetime = (5..8).random().toFloat()
+            flapSpeed = (2..4).random().toFloat(),  // Slower flapping speed
+            lifetime = (5..8).random().toFloat(),
+            spotColor = spotColor,
+            patternColor = patternColor
         )
     }
 
@@ -1344,7 +1382,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
         var pathRadius: Float = (30..50).random().toFloat(),
         var pathSpeed: Float = (1..2).random().toFloat(),
         var verticalPhase: Float = random.nextFloat() * Math.PI.toFloat() * 2,
-        var verticalSpeed: Float = (0.5f..1.5f).random()
+        var verticalSpeed: Float = (0.5f..1.5f).random(),
+        var spotColor: Color,
+        var patternColor: Color
     ) : PhysicsElement {
         override var isDead: Boolean = false
 
@@ -1387,7 +1427,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
             g2d.translate(x.toDouble(), y.toDouble())
 
             // Draw wings - flap from center axis
-            val leftWingAngle = sin(flapPhase) * Math.PI.toFloat() * 0.3f
+            val leftWingAngle = sin(flapPhase) * Math.PI.toFloat() * 1.3f
             val rightWingAngle = -leftWingAngle  // Opposite flap for symmetric motion
 
             // Draw left wing
@@ -1455,9 +1495,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
         private fun drawWingPatterns(g2d: Graphics2D, wing: Path2D.Float, alpha: Int) {
             // Draw spots and patterns
             g2d.color = Color(
-                (color.red * 0.7f).toInt(),
-                (color.green * 0.7f).toInt(),
-                (color.blue * 0.7f).toInt(),
+                (spotColor.red * 0.7f).toInt(),
+                (spotColor.green * 0.7f).toInt(),
+                (spotColor.blue * 0.7f).toInt(),
                 (alpha * 0.5f).toInt()
             )
             
