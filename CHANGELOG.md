@@ -1,5 +1,11 @@
 # Zeus Thunderbolt Plugin
 
+## [1.1.7] - 2025-01-07
+
+### Changed
+
+- butterfly effect & fix reverse particles
+
 ## [1.1.6] - 2025-01-06
 
 ### Changed

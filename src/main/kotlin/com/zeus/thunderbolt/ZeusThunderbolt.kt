@@ -13,6 +13,7 @@ import com.intellij.openapi.editor.event.*
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.IdeFrame
 import com.intellij.util.xmlb.XmlSerializerUtil
+import com.zeus.thunderbolt.ZeusThunderbolt.getPoint
 import java.awt.*
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
@@ -160,9 +161,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
                 if (event.oldLength > 0 && event.newLength == 0 && reverseParticlesEnabled) {
                     // This is a deletion event
                     val editor = editorFactory.getEditors(event.document).firstOrNull() ?: return
-                    val offset = event.offset
-                    val visualPos = editor.offsetToVisualPosition(offset)
-                    val point = editor.visualPositionToXY(visualPos)
+                    val point = event.getPoint(editor)
                     val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
                     val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
                     
@@ -372,6 +371,14 @@ object ZeusThunderbolt : ApplicationActivationListener {
             val location = editor.scrollingModel.visibleArea.location
             translate(-location.x, -location.y)
         }
+
+    private fun Editor.getPoint(event: DocumentEvent): Point =
+        visualPositionToXY(offsetToVisualPosition(event.offset)).apply {
+            val location = scrollingModel.visibleArea.location
+            translate(-location.x, -location.y)
+        }
+
+    private fun DocumentEvent.getPoint(editor: Editor): Point = editor.getPoint(this)
 
     private fun updateWind() {
         windTimer += dt
@@ -1458,17 +1465,15 @@ object ZeusThunderbolt : ApplicationActivationListener {
             g2d.dispose()
         }
 
-        private fun createWingGradient(alpha: Int): Paint {
-            return RadialGradientPaint(
-                0f, 0f, wingSpan,
-                floatArrayOf(0.4f, 0.7f, 1f),
-                arrayOf(
-                    Color(color.red, color.green, color.blue, alpha),
-                    Color(color.red / 2, color.green / 2, color.blue / 2, alpha),
-                    Color(color.red / 3, color.green / 3, color.blue / 3, (alpha * 0.7f).toInt())
-                )
+        private fun createWingGradient(alpha: Int): Paint = RadialGradientPaint(
+            0f, 0f, wingSpan,
+            floatArrayOf(0.4f, 0.7f, 1f),
+            arrayOf(
+                Color(color.red, color.green, color.blue, alpha),
+                Color(color.red / 2, color.green / 2, color.blue / 2, alpha),
+                Color(color.red / 3, color.green / 3, color.blue / 3, (alpha * 0.7f).toInt())
             )
-        }
+        )
         
         private fun createWingPath(path: Path2D.Float, direction: Int) {
             val dir = direction.toFloat()
