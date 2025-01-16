@@ -1,5 +1,11 @@
 # Zeus Thunderbolt Plugin
 
+## [1.1.8] - 2025-01-16
+
+### Changed
+
+- enable EAP
+
 ## [1.1.7] - 2025-01-07
 
 ### Changed
