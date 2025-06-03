@@ -9,3 +9,7 @@ build
 /private_encrypted.pem
 /private_key.pem
 bin
+/vscode-plugin/node_modules
+/vscode-plugin/node_modules/*
+/vscode-plugin/out
+/vscode-plugin/out/*
