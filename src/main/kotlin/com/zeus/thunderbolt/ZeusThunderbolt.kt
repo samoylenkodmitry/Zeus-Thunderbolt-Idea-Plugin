@@ -111,6 +111,15 @@ object ZeusThunderbolt : ApplicationActivationListener {
         settings.butterflyParticlesEnabled = enabled
     }
 
+    const val DEFAULT_PLANT_PARTICLES_ENABLED = false
+    private var plantParticlesEnabled = DEFAULT_PLANT_PARTICLES_ENABLED
+
+    fun isPlantsEnabled() = plantParticlesEnabled
+    fun setPlantsEnabled(enabled: Boolean) {
+        plantParticlesEnabled = enabled
+        settings.plantParticlesEnabled = enabled
+    }
+
     private fun trimParticles() {
         if (elements.size > maxParticles) {
             elements.subList(0, elements.size - maxParticles).clear()
@@ -150,6 +159,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
         setReverseParticlesEnabled(settings.reverseParticlesEnabled)
         setSnowEnabled(settings.snowEnabled)
         setButterfliesEnabled(settings.butterflyParticlesEnabled)
+        setPlantsEnabled(settings.plantParticlesEnabled)
         val editorFactory = EditorFactory.getInstance()
         val editors = mutableListOf<Editor>()
         val lastPositions = mutableMapOf<Caret, Point>()
@@ -353,6 +363,16 @@ object ZeusThunderbolt : ApplicationActivationListener {
                         lastTypingTime = System.nanoTime() * 1e-9f
                         typeCount = (typeCount + 1).coerceAtMost(10)
                         isSnowing = true
+                    }
+
+                    if (plantParticlesEnabled && !charTyped.isWhitespace()) {
+                        val caret = editor.caretModel.currentCaret
+                        val point = caret.getPoint()
+                        val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
+                        val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
+                        val plants = generatePlants(scrollOffsetX, scrollOffsetY, point)
+                        elements.addAll(plants)
+                        trimParticles()
                     }
 
                 } catch (_: Exception) {
@@ -612,6 +632,41 @@ object ZeusThunderbolt : ApplicationActivationListener {
             spotColor = spotColor,
             patternColor = patternColor
         )
+    }
+
+    private fun generateGrassBlade(x0: Float, y0: Float, point: Point): GrassBlade =
+        GrassBlade(
+            x0 = x0,
+            y0 = y0,
+            x = point.x.toFloat() + (-2..2).random(),
+            y = point.y.toFloat(),
+            height = (6..12).random().toFloat(),
+            swaySpeed = (1..3).random().toFloat(),
+            lifetime = (3..6).random().toFloat(),
+        )
+
+    private fun generateFlower(x0: Float, y0: Float, point: Point): Flower =
+        Flower(
+            x0 = x0,
+            y0 = y0,
+            x = point.x.toFloat() + (-3..3).random(),
+            y = point.y.toFloat(),
+            size = (4..8).random().toFloat(),
+            color = Color.getHSBColor(random.nextFloat(), 0.7f, 1f),
+            swaySpeed = (1..3).random().toFloat(),
+            lifetime = (4..7).random().toFloat(),
+        )
+
+    private fun generatePlants(x0: Float, y0: Float, point: Point): List<PhysicsElement> {
+        val result = mutableListOf<PhysicsElement>()
+        val blades = (1..2).random()
+        repeat(blades) {
+            result += generateGrassBlade(x0, y0, point)
+        }
+        if (random.nextFloat() > 0.7f) {
+            result += generateFlower(x0, y0, point.apply { translate(0, -5) })
+        }
+        return result
     }
 
     data class Snowflake(
@@ -1578,6 +1633,76 @@ object ZeusThunderbolt : ApplicationActivationListener {
         }
     }
 
+    data class GrassBlade(
+        override var x0: Float,
+        override var y0: Float,
+        override var x: Float,
+        override var y: Float,
+        var height: Float,
+        var swaySpeed: Float,
+        var lifetime: Float,
+        override var chainStrength: Float = 0f,
+        var swayPhase: Float = random.nextFloat() * Math.PI.toFloat() * 2,
+    ) : PhysicsElement {
+        override var isDead: Boolean = false
+
+        override fun update(elements: List<PhysicsElement>) {
+            lifetime -= dt
+            if (lifetime <= 0) { isDead = true; return }
+            swayPhase += swaySpeed * dt
+        }
+
+        override fun render(g: Graphics) {
+            val g2d = g as Graphics2D
+            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            val sway = sin(swayPhase) * 2
+            g2d.color = Color(34, 139, 34)
+            g2d.drawLine(x.toInt(), y.toInt(), (x + sway).toInt(), (y - height).toInt())
+        }
+
+        override fun reset() {
+            isDead = false
+            lifetime = (3..6).random().toFloat()
+        }
+    }
+
+    data class Flower(
+        override var x0: Float,
+        override var y0: Float,
+        override var x: Float,
+        override var y: Float,
+        var size: Float,
+        var color: Color,
+        var swaySpeed: Float,
+        var lifetime: Float,
+        override var chainStrength: Float = 0f,
+        var swayPhase: Float = random.nextFloat() * Math.PI.toFloat() * 2,
+    ) : PhysicsElement {
+        override var isDead: Boolean = false
+
+        override fun update(elements: List<PhysicsElement>) {
+            lifetime -= dt
+            if (lifetime <= 0) { isDead = true; return }
+            swayPhase += swaySpeed * dt
+        }
+
+        override fun render(g: Graphics) {
+            val g2d = g as Graphics2D
+            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            val sway = sin(swayPhase) * 2
+            val stem = size * 1.5f
+            g2d.color = Color(34, 139, 34)
+            g2d.drawLine(x.toInt(), y.toInt(), (x + sway).toInt(), (y - stem).toInt())
+            g2d.color = color
+            g2d.fillOval((x + sway - size / 2).toInt(), (y - stem - size / 2).toInt(), size.toInt(), size.toInt())
+        }
+
+        override fun reset() {
+            isDead = false
+            lifetime = (4..7).random().toFloat()
+        }
+    }
+
     // Add force field effect
     fun applyForceField(particle: Particle) {
         val fieldStrength = 50f
@@ -1608,6 +1733,7 @@ class ThunderSettings : PersistentStateComponent<ThunderSettings> {
     var snowEnabled: Boolean = ZeusThunderbolt.DEFAULT_SNOW_ENABLED
     var reverseParticlesEnabled: Boolean = ZeusThunderbolt.DEFAULT_REVERSE_PARTICLES_ENABLED
     var butterflyParticlesEnabled: Boolean = ZeusThunderbolt.DEFAULT_BUTTERFLY_PARTICLES_ENABLED
+    var plantParticlesEnabled: Boolean = ZeusThunderbolt.DEFAULT_PLANT_PARTICLES_ENABLED
 
     override fun getState(): ThunderSettings = this
 
