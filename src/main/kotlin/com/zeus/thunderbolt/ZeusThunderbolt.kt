@@ -20,6 +20,7 @@ import java.awt.event.ComponentEvent
 import java.awt.geom.GeneralPath
 import java.awt.geom.Point2D
 import java.awt.geom.CubicCurve2D
+import java.awt.geom.Line2D
 import java.util.*
 import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.JComponent
@@ -664,7 +665,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
             result += generateGrassBlade(x0, y0, point)
         }
         if (random.nextFloat() > 0.7f) {
-            result += generateFlower(x0, y0, point.apply { translate(0, -5) })
+            result += generateFlower(x0, y0, Point(point).apply { translate(0, -5) })
         }
         return result
     }
@@ -876,6 +877,35 @@ object ZeusThunderbolt : ApplicationActivationListener {
         override fun reset() {
             isDead = false
             currentSnapshotIndex = -1
+        }
+    }
+
+    abstract class PlantElement(
+        override var x0: Float,
+        override var y0: Float,
+        override var x: Float,
+        override var y: Float,
+        open var swaySpeed: Float,
+        open var lifetime: Float,
+        override var chainStrength: Float = 0f,
+        open var swayPhase: Float = random.nextFloat() * Math.PI.toFloat() * 2,
+    ) : PhysicsElement {
+        override var isDead: Boolean = false
+
+        override fun update(elements: List<PhysicsElement>) {
+            lifetime -= dt
+            if (lifetime <= 0) {
+                isDead = true
+                return
+            }
+            swayPhase += swaySpeed * dt
+        }
+
+        abstract fun randomizeLifetime()
+
+        override fun reset() {
+            isDead = false
+            randomizeLifetime()
         }
     }
 
@@ -1639,29 +1669,23 @@ object ZeusThunderbolt : ApplicationActivationListener {
         override var x: Float,
         override var y: Float,
         var height: Float,
-        var swaySpeed: Float,
-        var lifetime: Float,
+        override var swaySpeed: Float,
+        override var lifetime: Float,
         override var chainStrength: Float = 0f,
-        var swayPhase: Float = random.nextFloat() * Math.PI.toFloat() * 2,
-    ) : PhysicsElement {
-        override var isDead: Boolean = false
-
-        override fun update(elements: List<PhysicsElement>) {
-            lifetime -= dt
-            if (lifetime <= 0) { isDead = true; return }
-            swayPhase += swaySpeed * dt
-        }
+        override var swayPhase: Float = random.nextFloat() * Math.PI.toFloat() * 2,
+    ) : PlantElement(x0, y0, x, y, swaySpeed, lifetime, chainStrength, swayPhase) {
 
         override fun render(g: Graphics) {
             val g2d = g as Graphics2D
             g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             val sway = sin(swayPhase) * 2
-            g2d.color = Color(34, 139, 34)
-            g2d.drawLine(x.toInt(), y.toInt(), (x + sway).toInt(), (y - height).toInt())
+            val gradient = GradientPaint(x, y, Color(34, 139, 34), x + sway, y - height, Color(144, 238, 144))
+            g2d.paint = gradient
+            g2d.stroke = BasicStroke(2f)
+            g2d.draw(Line2D.Float(x, y, x + sway, y - height))
         }
 
-        override fun reset() {
-            isDead = false
+        override fun randomizeLifetime() {
             lifetime = (3..6).random().toFloat()
         }
     }
@@ -1673,32 +1697,47 @@ object ZeusThunderbolt : ApplicationActivationListener {
         override var y: Float,
         var size: Float,
         var color: Color,
-        var swaySpeed: Float,
-        var lifetime: Float,
+        override var swaySpeed: Float,
+        override var lifetime: Float,
         override var chainStrength: Float = 0f,
-        var swayPhase: Float = random.nextFloat() * Math.PI.toFloat() * 2,
-    ) : PhysicsElement {
-        override var isDead: Boolean = false
+        override var swayPhase: Float = random.nextFloat() * Math.PI.toFloat() * 2,
+    ) : PlantElement(x0, y0, x, y, swaySpeed, lifetime, chainStrength, swayPhase) {
 
-        override fun update(elements: List<PhysicsElement>) {
-            lifetime -= dt
-            if (lifetime <= 0) { isDead = true; return }
-            swayPhase += swaySpeed * dt
-        }
+        private val petals = 5 + random.nextInt(3)
 
         override fun render(g: Graphics) {
             val g2d = g as Graphics2D
             g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             val sway = sin(swayPhase) * 2
             val stem = size * 1.5f
+            val centerX = x + sway
+            val centerY = y - stem
+
+            // Draw stem
             g2d.color = Color(34, 139, 34)
-            g2d.drawLine(x.toInt(), y.toInt(), (x + sway).toInt(), (y - stem).toInt())
-            g2d.color = color
-            g2d.fillOval((x + sway - size / 2).toInt(), (y - stem - size / 2).toInt(), size.toInt(), size.toInt())
+            g2d.stroke = BasicStroke(2f)
+            g2d.draw(Line2D.Float(x, y, centerX, centerY))
+
+            // Draw petals
+            for (i in 0 until petals) {
+                val angle = i * (Math.PI * 2 / petals) + swayPhase * 0.5
+                val px = centerX + cos(angle) * size
+                val py = centerY + sin(angle) * size
+                val gradient = RadialGradientPaint(
+                    px.toFloat(), py.toFloat(), size * 0.6f,
+                    floatArrayOf(0f, 1f),
+                    arrayOf(color.brighter(), color.darker())
+                )
+                g2d.paint = gradient
+                g2d.fill(Ellipse2D.Float((px - size * 0.3f).toFloat(), (py - size * 0.3f).toFloat(), size * 0.6f, size * 0.6f))
+            }
+
+            // Center
+            g2d.paint = Color(255, 215, 0)
+            g2d.fillOval((centerX - size * 0.25f).toInt(), (centerY - size * 0.25f).toInt(), (size * 0.5f).toInt(), (size * 0.5f).toInt())
         }
 
-        override fun reset() {
-            isDead = false
+        override fun randomizeLifetime() {
             lifetime = (4..7).random().toFloat()
         }
     }
