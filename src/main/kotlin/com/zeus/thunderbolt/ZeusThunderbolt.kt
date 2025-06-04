@@ -635,16 +635,53 @@ object ZeusThunderbolt : ApplicationActivationListener {
         )
     }
 
-    private fun generateGrassBlade(x0: Float, y0: Float, point: Point): GrassBlade =
-        GrassBlade(
+    private fun generateGrassBlade(x0: Float, y0: Float, point: Point): GrassBlade {
+        val baseX = point.x.toFloat() + (-2..2).random()
+        val baseY = point.y.toFloat()
+        val height = (8..14).random().toFloat()
+
+        val segments = 5
+        val amplitude = (2..5).random().toFloat()
+        val slope = (-3..3).random().toFloat() * 0.5f
+        val pts = mutableListOf<Point2D.Float>()
+        pts += Point2D.Float(baseX, baseY)
+        for (i in 1..segments) {
+            val t = i.toFloat() / segments
+            val xOff = (sin(t * Math.PI).toFloat() * amplitude) + slope * t * segments
+            val yPos = baseY - height * t
+            pts += Point2D.Float(baseX + xOff, yPos)
+        }
+
+        val branches = mutableListOf<List<Point2D.Float>>()
+        if (random.nextFloat() > 0.6f) {
+            val startIdx = (1 until segments).random()
+            val start = pts[startIdx]
+            val branchSeg = 3
+            val branchAmp = amplitude * 0.6f
+            val branchSlope = (-2..2).random().toFloat()
+            val bPts = mutableListOf<Point2D.Float>()
+            bPts += Point2D.Float(start.x, start.y)
+            for (i in 1..branchSeg) {
+                val t = i.toFloat() / branchSeg
+                val bx = start.x + sin(t * Math.PI).toFloat() * branchAmp + branchSlope * t * branchSeg
+                val by = start.y - height * 0.4f * t
+                bPts += Point2D.Float(bx, by)
+            }
+            branches += bPts
+        }
+
+        return GrassBlade(
             x0 = x0,
             y0 = y0,
-            x = point.x.toFloat() + (-2..2).random(),
-            y = point.y.toFloat(),
-            height = (6..12).random().toFloat(),
-            swaySpeed = (1..3).random().toFloat(),
-            lifetime = (3..6).random().toFloat(),
+            x = baseX,
+            y = baseY,
+            height = height,
+            swaySpeed = (1..2).random().toFloat(),
+            lifetime = (6..10).random().toFloat(),
+            path = pts,
+            branches = branches,
         )
+    }
 
     private fun generateFlower(x0: Float, y0: Float, point: Point): Flower =
         Flower(
@@ -1673,20 +1710,58 @@ object ZeusThunderbolt : ApplicationActivationListener {
         override var lifetime: Float,
         override var chainStrength: Float = 0f,
         override var swayPhase: Float = random.nextFloat() * Math.PI.toFloat() * 2,
+        var growthSpeed: Float = (40..70).random() / 100f,
+        var growth: Float = 0f,
+        val path: List<Point2D.Float> = emptyList(),
+        val branches: List<List<Point2D.Float>> = emptyList(),
     ) : PlantElement(x0, y0, x, y, swaySpeed, lifetime, chainStrength, swayPhase) {
+
+        override fun update(elements: List<PhysicsElement>) {
+            super.update(elements)
+            if (!isDead) {
+                growth = (growth + growthSpeed * dt).coerceAtMost(1f)
+            }
+        }
 
         override fun render(g: Graphics) {
             val g2d = g as Graphics2D
             g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            val progress = growth
             val sway = sin(swayPhase) * 2
             val gradient = GradientPaint(x, y, Color(34, 139, 34), x + sway, y - height, Color(144, 238, 144))
             g2d.paint = gradient
             g2d.stroke = BasicStroke(2f)
-            g2d.draw(Line2D.Float(x, y, x + sway, y - height))
+
+            fun drawPath(points: List<Point2D.Float>) {
+                if (points.isEmpty()) return
+                val totalSegments = points.size - 1
+                val target = progress * totalSegments
+                var idx = 0
+                val path = GeneralPath()
+                path.moveTo(points[0].x.toDouble(), points[0].y.toDouble())
+                while (idx < target.toInt()) {
+                    val p = points[idx + 1]
+                    path.lineTo(p.x.toDouble(), p.y.toDouble())
+                    idx++
+                }
+                val nextIndex = target.toInt() + 1
+                if (nextIndex < points.size) {
+                    val t = target - target.toInt()
+                    val p1 = points[target.toInt()]
+                    val p2 = points[nextIndex]
+                    val px = p1.x + (p2.x - p1.x) * t
+                    val py = p1.y + (p2.y - p1.y) * t
+                    path.lineTo(px.toDouble(), py.toDouble())
+                }
+                g2d.draw(path)
+            }
+
+            drawPath(path)
+            branches.forEach { drawPath(it) }
         }
 
         override fun randomizeLifetime() {
-            lifetime = (3..6).random().toFloat()
+            lifetime = (6..10).random().toFloat()
         }
     }
 
