@@ -638,10 +638,11 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private fun generateGrassBlade(x0: Float, y0: Float, point: Point): GrassBlade {
         val baseX = point.x.toFloat() + (-2..2).random()
         val baseY = point.y.toFloat()
-        val height = (14..22).random().toFloat()
+        val height = (12..32).random().toFloat()
 
         val segments = 6
-        val amplitude = (3..6).random().toFloat()
+        val dir = if (random.nextBoolean()) 1f else -1f
+        val amplitude = dir * (3..6).random().toFloat()
         val slope = (-3..3).random().toFloat() * 0.4f
         val pts = mutableListOf<Point2D.Float>()
         pts += Point2D.Float(baseX, baseY)
@@ -657,7 +658,8 @@ object ZeusThunderbolt : ApplicationActivationListener {
             val startIdx = (1 until segments).random()
             val start = pts[startIdx]
             val branchSeg = 3
-            val branchAmp = amplitude * 0.7f
+            val branchDir = if (random.nextBoolean()) 1f else -1f
+            val branchAmp = branchDir * amplitude * 0.7f
             val branchSlope = (-2..2).random().toFloat()
             val bPts = mutableListOf<Point2D.Float>()
             bPts += Point2D.Float(start.x, start.y)
@@ -678,6 +680,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
             height = height,
             swaySpeed = (1..2).random().toFloat(),
             lifetime = (8..12).random().toFloat(),
+            strokeWidth = (1..3).random() / 1.5f,
+            growDelay = (0..30).random() / 100f,
+            growthSpeed = (30..80).random() / 100f,
             path = pts,
             branches = branches,
         )
@@ -693,6 +698,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
             color = Color.getHSBColor(random.nextFloat(), 0.7f, 1f),
             swaySpeed = (1..3).random().toFloat(),
             lifetime = (6..10).random().toFloat(),
+            stemWidth = (1..3).random() / 1.5f,
+            growDelay = (0..30).random() / 100f,
+            growthSpeed = (30..70).random() / 100f,
         )
 
     private fun generatePlants(x0: Float, y0: Float, point: Point): List<PhysicsElement> {
@@ -1715,8 +1723,10 @@ object ZeusThunderbolt : ApplicationActivationListener {
         override var lifetime: Float,
         override var chainStrength: Float = 0f,
         override var swayPhase: Float = random.nextFloat() * Math.PI.toFloat() * 2,
-        var growthSpeed: Float = (40..70).random() / 100f,
+        var growthSpeed: Float = (30..80).random() / 100f,
+        var growDelay: Float = 0f,
         var growth: Float = 0f,
+        var strokeWidth: Float = 2f,
         val path: List<Point2D.Float> = emptyList(),
         val branches: List<List<Point2D.Float>> = emptyList(),
     ) : PlantElement(x0, y0, x, y, swaySpeed, lifetime, chainStrength, swayPhase) {
@@ -1724,7 +1734,11 @@ object ZeusThunderbolt : ApplicationActivationListener {
         override fun update(elements: List<PhysicsElement>) {
             super.update(elements)
             if (!isDead) {
-                growth = (growth + growthSpeed * dt).coerceAtMost(1f)
+                if (growDelay > 0f) {
+                    growDelay -= dt
+                } else {
+                    growth = (growth + growthSpeed * dt).coerceAtMost(1f)
+                }
             }
         }
 
@@ -1735,7 +1749,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
             val sway = sin(swayPhase) * 2
             val gradient = GradientPaint(x, y, Color(34, 139, 34), x + sway, y - height, Color(144, 238, 144))
             g2d.paint = gradient
-            g2d.stroke = BasicStroke(2f)
+            g2d.stroke = BasicStroke(strokeWidth)
 
             fun drawPath(points: List<Point2D.Float>) {
                 if (points.isEmpty()) return
@@ -1781,8 +1795,10 @@ object ZeusThunderbolt : ApplicationActivationListener {
         override var lifetime: Float,
         override var chainStrength: Float = 0f,
         override var swayPhase: Float = random.nextFloat() * Math.PI.toFloat() * 2,
-        var growthSpeed: Float = (30..60).random() / 100f,
+        var growthSpeed: Float = (30..70).random() / 100f,
+        var growDelay: Float = 0f,
         var growth: Float = 0f,
+        var stemWidth: Float = 2f,
     ) : PlantElement(x0, y0, x, y, swaySpeed, lifetime, chainStrength, swayPhase) {
 
         private val petals = 5 + random.nextInt(3)
@@ -1790,7 +1806,11 @@ object ZeusThunderbolt : ApplicationActivationListener {
         override fun update(elements: List<PhysicsElement>) {
             super.update(elements)
             if (!isDead) {
-                growth = (growth + growthSpeed * dt).coerceAtMost(1f)
+                if (growDelay > 0f) {
+                    growDelay -= dt
+                } else {
+                    growth = (growth + growthSpeed * dt).coerceAtMost(1f)
+                }
             }
         }
 
@@ -1804,7 +1824,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
             // Draw stem
             g2d.color = Color(34, 139, 34)
-            g2d.stroke = BasicStroke(2f)
+            g2d.stroke = BasicStroke(stemWidth)
             g2d.draw(Line2D.Float(x, y, centerX, centerY))
 
             // Draw petals
