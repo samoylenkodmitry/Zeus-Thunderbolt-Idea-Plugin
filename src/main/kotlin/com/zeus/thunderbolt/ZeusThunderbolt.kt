@@ -638,11 +638,11 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private fun generateGrassBlade(x0: Float, y0: Float, point: Point): GrassBlade {
         val baseX = point.x.toFloat() + (-2..2).random()
         val baseY = point.y.toFloat()
-        val height = (8..14).random().toFloat()
+        val height = (14..22).random().toFloat()
 
-        val segments = 5
-        val amplitude = (2..5).random().toFloat()
-        val slope = (-3..3).random().toFloat() * 0.5f
+        val segments = 6
+        val amplitude = (3..6).random().toFloat()
+        val slope = (-3..3).random().toFloat() * 0.4f
         val pts = mutableListOf<Point2D.Float>()
         pts += Point2D.Float(baseX, baseY)
         for (i in 1..segments) {
@@ -653,11 +653,11 @@ object ZeusThunderbolt : ApplicationActivationListener {
         }
 
         val branches = mutableListOf<List<Point2D.Float>>()
-        if (random.nextFloat() > 0.6f) {
+        if (random.nextFloat() > 0.5f) {
             val startIdx = (1 until segments).random()
             val start = pts[startIdx]
             val branchSeg = 3
-            val branchAmp = amplitude * 0.6f
+            val branchAmp = amplitude * 0.7f
             val branchSlope = (-2..2).random().toFloat()
             val bPts = mutableListOf<Point2D.Float>()
             bPts += Point2D.Float(start.x, start.y)
@@ -677,32 +677,37 @@ object ZeusThunderbolt : ApplicationActivationListener {
             y = baseY,
             height = height,
             swaySpeed = (1..2).random().toFloat(),
-            lifetime = (6..10).random().toFloat(),
+            lifetime = (8..12).random().toFloat(),
             path = pts,
             branches = branches,
         )
     }
 
-    private fun generateFlower(x0: Float, y0: Float, point: Point): Flower =
+    private fun generateFlower(x0: Float, y0: Float, anchor: Point2D.Float): Flower =
         Flower(
             x0 = x0,
             y0 = y0,
-            x = point.x.toFloat() + (-3..3).random(),
-            y = point.y.toFloat(),
-            size = (4..8).random().toFloat(),
+            x = anchor.x,
+            y = anchor.y,
+            size = (5..9).random().toFloat(),
             color = Color.getHSBColor(random.nextFloat(), 0.7f, 1f),
             swaySpeed = (1..3).random().toFloat(),
-            lifetime = (4..7).random().toFloat(),
+            lifetime = (6..10).random().toFloat(),
         )
 
     private fun generatePlants(x0: Float, y0: Float, point: Point): List<PhysicsElement> {
         val result = mutableListOf<PhysicsElement>()
-        val blades = (1..2).random()
-        repeat(blades) {
-            result += generateGrassBlade(x0, y0, point)
+        val bladesCount = (2..4).random()
+        val blades = mutableListOf<GrassBlade>()
+        repeat(bladesCount) {
+            val blade = generateGrassBlade(x0, y0, point)
+            blades += blade
+            result += blade
         }
-        if (random.nextFloat() > 0.7f) {
-            result += generateFlower(x0, y0, Point(point).apply { translate(0, -5) })
+        if (random.nextFloat() > 0.6f && blades.isNotEmpty()) {
+            val targetBlade = blades.random()
+            val anchor = targetBlade.path.last()
+            result += generateFlower(x0, y0, anchor)
         }
         return result
     }
@@ -1776,15 +1781,24 @@ object ZeusThunderbolt : ApplicationActivationListener {
         override var lifetime: Float,
         override var chainStrength: Float = 0f,
         override var swayPhase: Float = random.nextFloat() * Math.PI.toFloat() * 2,
+        var growthSpeed: Float = (30..60).random() / 100f,
+        var growth: Float = 0f,
     ) : PlantElement(x0, y0, x, y, swaySpeed, lifetime, chainStrength, swayPhase) {
 
         private val petals = 5 + random.nextInt(3)
+
+        override fun update(elements: List<PhysicsElement>) {
+            super.update(elements)
+            if (!isDead) {
+                growth = (growth + growthSpeed * dt).coerceAtMost(1f)
+            }
+        }
 
         override fun render(g: Graphics) {
             val g2d = g as Graphics2D
             g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             val sway = sin(swayPhase) * 2
-            val stem = size * 1.5f
+            val stem = size * 1.5f * growth
             val centerX = x + sway
             val centerY = y - stem
 
@@ -1795,25 +1809,26 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
             // Draw petals
             for (i in 0 until petals) {
-                val angle = i * (Math.PI * 2 / petals) + swayPhase * 0.5
-                val px = centerX + cos(angle) * size
-                val py = centerY + sin(angle) * size
+                val angle = i * (Math.PI * 2 / petals)
+                val px = centerX + cos(angle) * size * growth
+                val py = centerY + sin(angle) * size * growth
                 val gradient = RadialGradientPaint(
-                    px.toFloat(), py.toFloat(), size * 0.6f,
+                    px.toFloat(), py.toFloat(), size * 0.6f * growth,
                     floatArrayOf(0f, 1f),
                     arrayOf(color.brighter(), color.darker())
                 )
                 g2d.paint = gradient
-                g2d.fill(Ellipse2D.Float((px - size * 0.3f).toFloat(), (py - size * 0.3f).toFloat(), size * 0.6f, size * 0.6f))
+                g2d.fill(Ellipse2D.Float((px - size * 0.3f * growth).toFloat(), (py - size * 0.3f * growth).toFloat(), size * 0.6f * growth, size * 0.6f * growth))
             }
 
             // Center
             g2d.paint = Color(255, 215, 0)
-            g2d.fillOval((centerX - size * 0.25f).toInt(), (centerY - size * 0.25f).toInt(), (size * 0.5f).toInt(), (size * 0.5f).toInt())
+            val cSize = size * 0.5f * growth
+            g2d.fillOval((centerX - cSize * 0.5f).toInt(), (centerY - cSize * 0.5f).toInt(), cSize.toInt(), cSize.toInt())
         }
 
         override fun randomizeLifetime() {
-            lifetime = (4..7).random().toFloat()
+            lifetime = (6..10).random().toFloat()
         }
     }
 
