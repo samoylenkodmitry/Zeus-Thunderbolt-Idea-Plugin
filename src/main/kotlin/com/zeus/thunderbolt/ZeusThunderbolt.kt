@@ -38,7 +38,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
     private const val TARGET_FPS = 60
     private const val FRAME_TIME_NS = 1_000_000_000L / TARGET_FPS
-    private const val maxParticles = 2500
+    private const val maxParticles = 1200
+    private const val MAX_PLANT_ELEMENTS = 200
+    private const val PLANT_SPAWN_INTERVAL_NS = 100_000_000L // 100ms
     private const val maxChainParticles = 30
     private const val maxParticlePoolSize = 3000
     private const val WIND_CHANGE_INTERVAL = 2f  // Wind changes direction every 2 seconds
@@ -354,6 +356,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
         editorFactory.addEditorFactoryListener(factoryListener, app)
         val typedAction = TypedAction.getInstance()
         val defaultHandler = typedAction.rawHandler
+        var lastPlantSpawn = 0L
         val typedActionHandler =
             TypedActionHandler { editor, charTyped, dataContext ->
                 try {
@@ -367,13 +370,20 @@ object ZeusThunderbolt : ApplicationActivationListener {
                     }
 
                     if (plantParticlesEnabled && !charTyped.isWhitespace()) {
-                        val caret = editor.caretModel.currentCaret
-                        val point = caret.getPoint()
-                        val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
-                        val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
-                        val plants = generatePlants(scrollOffsetX, scrollOffsetY, point)
-                        elements.addAll(plants)
-                        trimParticles()
+                        val now = System.nanoTime()
+                        if (now - lastPlantSpawn > PLANT_SPAWN_INTERVAL_NS) {
+                            lastPlantSpawn = now
+                            val plantsCount = elements.count { it is PlantElement }
+                            if (plantsCount < MAX_PLANT_ELEMENTS) {
+                                val caret = editor.caretModel.currentCaret
+                                val point = caret.getPoint()
+                                val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
+                                val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
+                                val plants = generatePlants(scrollOffsetX, scrollOffsetY, point)
+                                elements.addAll(plants)
+                                trimParticles()
+                            }
+                        }
                     }
 
                 } catch (_: Exception) {
