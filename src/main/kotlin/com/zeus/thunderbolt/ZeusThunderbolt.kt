@@ -40,7 +40,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private const val FRAME_TIME_NS = 1_000_000_000L / TARGET_FPS
     private const val maxParticles = 1200
     private const val MAX_PLANT_ELEMENTS = 200
-    private const val PLANT_SPAWN_INTERVAL_NS = 100_000_000L // 100ms
+    private const val PLANT_SPAWN_INTERVAL_NS = 250_000_000L // 250ms
     private const val maxChainParticles = 30
     private const val maxParticlePoolSize = 3000
     private const val WIND_CHANGE_INTERVAL = 2f  // Wind changes direction every 2 seconds
@@ -53,6 +53,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private var dt = 0f
     private val particlePool = ConcurrentLinkedQueue<Particle>()
     private val elements = CopyOnWriteArrayList<PhysicsElement>()
+    private val plantElementCount = AtomicInteger(0)
     private val settings: ThunderSettings get() = ThunderSettings.getInstance()
     private val random = Random()
     private val themes = Theme.entries.toTypedArray()
@@ -125,7 +126,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
     private fun trimParticles() {
         if (elements.size > maxParticles) {
-            elements.subList(0, elements.size - maxParticles).clear()
+            val toRemove = elements.subList(0, elements.size - maxParticles)
+            toRemove.forEach { if (it is PlantElement) plantElementCount.decrementAndGet() }
+            toRemove.clear()
         }
     }
 
@@ -293,6 +296,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
                 // Clean up in batch
                 elements.removeAll(deadElements)
+                deadElements.forEach { if (it is PlantElement) plantElementCount.decrementAndGet() }
                 if (particlePool.size < maxParticlePoolSize)
                     particlePool.addAll(deadParticles)
 
@@ -371,15 +375,18 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
                     if (plantParticlesEnabled && !charTyped.isWhitespace()) {
                         val now = System.nanoTime()
-                        if (now - lastPlantSpawn > PLANT_SPAWN_INTERVAL_NS) {
+                        if (now - lastPlantSpawn > PLANT_SPAWN_INTERVAL_NS &&
+                            plantElementCount.get() < MAX_PLANT_ELEMENTS
+                        ) {
                             lastPlantSpawn = now
-                            val plantsCount = elements.count { it is PlantElement }
-                            if (plantsCount < MAX_PLANT_ELEMENTS) {
-                                val caret = editor.caretModel.currentCaret
-                                val point = caret.getPoint()
-                                val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
-                                val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
+                            val caret = editor.caretModel.currentCaret
+                            val point = caret.getPoint()
+                            val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
+                            val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
+
+                            coroutineScope.launch {
                                 val plants = generatePlants(scrollOffsetX, scrollOffsetY, point)
+                                plantElementCount.addAndGet(plants.size)
                                 elements.addAll(plants)
                                 trimParticles()
                             }
@@ -715,7 +722,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
     private fun generatePlants(x0: Float, y0: Float, point: Point): List<PhysicsElement> {
         val result = mutableListOf<PhysicsElement>()
-        val bladesCount = (2..4).random()
+        val bladesCount = (1..3).random()
         val blades = mutableListOf<GrassBlade>()
         repeat(bladesCount) {
             val blade = generateGrassBlade(x0, y0, point)
