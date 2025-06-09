@@ -1748,6 +1748,16 @@ object ZeusThunderbolt : ApplicationActivationListener {
         val branches: List<List<Point2D.Float>> = emptyList(),
     ) : PlantElement(x0, y0, x, y, swaySpeed, lifetime, chainStrength, swayPhase) {
 
+        private val segments: List<Line2D.Float>
+        private val branchSegments: List<List<Line2D.Float>>
+
+        init {
+            segments = path.windowed(2) { (a, b) -> Line2D.Float(a, b) }
+            branchSegments = branches.map { br ->
+                br.windowed(2) { (a, b) -> Line2D.Float(a, b) }
+            }
+        }
+
         override fun update(elements: List<PhysicsElement>) {
             super.update(elements)
             if (!isDead) {
@@ -1768,32 +1778,30 @@ object ZeusThunderbolt : ApplicationActivationListener {
             g2d.paint = gradient
             g2d.stroke = BasicStroke(strokeWidth)
 
-            fun drawPath(points: List<Point2D.Float>) {
-                if (points.isEmpty()) return
-                val totalSegments = points.size - 1
+            fun drawSegments(segs: List<Line2D.Float>, points: List<Point2D.Float>) {
+                if (segs.isEmpty()) return
+                val totalSegments = segs.size
                 val target = progress * totalSegments
                 var idx = 0
-                val path = GeneralPath()
-                path.moveTo(points[0].x.toDouble(), points[0].y.toDouble())
                 while (idx < target.toInt()) {
-                    val p = points[idx + 1]
-                    path.lineTo(p.x.toDouble(), p.y.toDouble())
+                    g2d.draw(segs[idx])
                     idx++
                 }
-                val nextIndex = target.toInt() + 1
-                if (nextIndex < points.size) {
-                    val t = target - target.toInt()
-                    val p1 = points[target.toInt()]
-                    val p2 = points[nextIndex]
+                val nextIndex = target.toInt()
+                if (nextIndex < segs.size) {
+                    val t = target - nextIndex
+                    val p1 = points[nextIndex]
+                    val p2 = points[nextIndex + 1]
                     val px = p1.x + (p2.x - p1.x) * t
                     val py = p1.y + (p2.y - p1.y) * t
-                    path.lineTo(px.toDouble(), py.toDouble())
+                    g2d.draw(Line2D.Float(p1.x, p1.y, px, py))
                 }
-                g2d.draw(path)
             }
 
-            drawPath(path)
-            branches.forEach { drawPath(it) }
+            drawSegments(segments, path)
+            branchSegments.forEachIndexed { i, segs ->
+                drawSegments(segs, branches[i])
+            }
         }
 
         override fun randomizeLifetime() {
@@ -1819,6 +1827,14 @@ object ZeusThunderbolt : ApplicationActivationListener {
     ) : PlantElement(x0, y0, x, y, swaySpeed, lifetime, chainStrength, swayPhase) {
 
         private val petals = 5 + random.nextInt(3)
+        private val petalOffsets: List<Point2D.Float>
+
+        init {
+            petalOffsets = List(petals) { i ->
+                val angle = i * (Math.PI * 2 / petals)
+                Point2D.Float(cos(angle).toFloat(), sin(angle).toFloat())
+            }
+        }
 
         override fun update(elements: List<PhysicsElement>) {
             super.update(elements)
@@ -1846,9 +1862,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
             // Draw petals
             for (i in 0 until petals) {
-                val angle = i * (Math.PI * 2 / petals)
-                val px = centerX + cos(angle) * size * growth
-                val py = centerY + sin(angle) * size * growth
+                val off = petalOffsets[i]
+                val px = centerX + off.x * size * growth
+                val py = centerY + off.y * size * growth
                 val gradient = RadialGradientPaint(
                     px.toFloat(), py.toFloat(), size * 0.6f * growth,
                     floatArrayOf(0f, 1f),
