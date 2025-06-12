@@ -22,13 +22,13 @@ import java.awt.geom.Point2D
 import java.awt.geom.CubicCurve2D
 import java.awt.geom.Line2D
 import java.util.*
+import java.util.Collections
 import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.JComponent
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.*
 import java.awt.geom.Ellipse2D
 import java.awt.geom.Path2D
@@ -52,7 +52,8 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private var lastFrameTime = System.nanoTime()
     private var dt = 0f
     private val particlePool = ConcurrentLinkedQueue<Particle>()
-    private val elements = CopyOnWriteArrayList<PhysicsElement>()
+    private val elements = Collections.synchronizedList(mutableListOf<PhysicsElement>())
+    private val pendingElements = ConcurrentLinkedQueue<PhysicsElement>()
     private val plantElementCount = AtomicInteger(0)
     private val settings: ThunderSettings get() = ThunderSettings.getInstance()
     private val random = Random()
@@ -125,10 +126,12 @@ object ZeusThunderbolt : ApplicationActivationListener {
     }
 
     private fun trimParticles() {
-        if (elements.size > maxParticles) {
-            val toRemove = elements.subList(0, elements.size - maxParticles)
-            toRemove.forEach { if (it is PlantElement) plantElementCount.decrementAndGet() }
-            toRemove.clear()
+        synchronized(elements) {
+            if (elements.size > maxParticles) {
+                val toRemove = elements.subList(0, elements.size - maxParticles)
+                toRemove.forEach { if (it is PlantElement) plantElementCount.decrementAndGet() }
+                toRemove.clear()
+            }
         }
     }
 
@@ -187,7 +190,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
                         y0 = scrollOffsetY,
                         point = point
                     )
-                    elements += reverseParticles
+                    pendingElements += reverseParticles
                     trimParticles()
                 }
             }
@@ -204,17 +207,17 @@ object ZeusThunderbolt : ApplicationActivationListener {
             val distance = lastPos?.distance(newPos)
             if (distance == null || distance > 1) {
                 val newParticles = generateParticles(x0 = scrollOffsetX, y0 = scrollOffsetY, newPos)
-                elements.addAll(newParticles)
+                pendingElements.addAll(newParticles)
             }
             // Create chain particles for big jumps
             if (distance != null && distance > 50) {
-                val chainCount = elements.count { it is ChainParticle }
+                val chainCount = synchronized(elements) { elements.count { it is ChainParticle } }
                 if (chainCount < maxChainParticles) {
-                    elements += generateChainParticles(
+                    pendingElements.addAll(generateChainParticles(
                         x0 = scrollOffsetX,
                         y0 = scrollOffsetY,
                         lastPos, newPos
-                    )
+                    ))
                 }
             }
             trimParticles()
@@ -264,12 +267,14 @@ object ZeusThunderbolt : ApplicationActivationListener {
                 if (System.identityHashCode(editor) != currEditorObj.get()) return
                 val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
                 val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
-                for (e in elements) {
-                    val dx = e.x0 - scrollOffsetX
-                    val dy = e.y0 - scrollOffsetY
-                    g.translate(dx.toInt(), dy.toInt())
-                    e.render(g)
-                    g.translate(-dx.toInt(), -dy.toInt())
+                synchronized(elements) {
+                    for (e in elements) {
+                        val dx = e.x0 - scrollOffsetX
+                        val dy = e.y0 - scrollOffsetY
+                        g.translate(dx.toInt(), dy.toInt())
+                        e.render(g)
+                        g.translate(-dx.toInt(), -dy.toInt())
+                    }
                 }
             }
         }
@@ -277,6 +282,11 @@ object ZeusThunderbolt : ApplicationActivationListener {
         val containers = mutableMapOf<Editor, ElementsContainer>()
         val renderJob = coroutineScope.launch {
             while (isActive) {
+                while (true) {
+                    val e = pendingElements.poll() ?: break
+                    elements.add(e)
+                }
+
                 val currentTime = System.nanoTime()
                 dt = ((currentTime - lastFrameTime) / 1_000_000_000f).coerceAtMost(0.032f)
                 lastFrameTime = currentTime
@@ -284,18 +294,20 @@ object ZeusThunderbolt : ApplicationActivationListener {
                 val deadElements = HashSet<PhysicsElement>()
                 val deadParticles = mutableListOf<Particle>()
 
-                for (e in elements) {
-                    e.update(elements)
-                    if (e.isDead) {
-                        deadElements += e
-                        if (e is Particle) {
-                            deadParticles += e
+                synchronized(elements) {
+                    for (e in elements) {
+                        e.update(elements)
+                        if (e.isDead) {
+                            deadElements += e
+                            if (e is Particle) {
+                                deadParticles += e
+                            }
                         }
                     }
+                    elements.removeAll(deadElements)
                 }
 
                 // Clean up in batch
-                elements.removeAll(deadElements)
                 deadElements.forEach { if (it is PlantElement) plantElementCount.decrementAndGet() }
                 if (particlePool.size < maxParticlePoolSize)
                     particlePool.addAll(deadParticles)
@@ -387,7 +399,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
                             coroutineScope.launch {
                                 val plants = generatePlants(scrollOffsetX, scrollOffsetY, point)
                                 plantElementCount.addAndGet(plants.size)
-                                elements.addAll(plants)
+                                pendingElements.addAll(plants)
                                 trimParticles()
                             }
                         }
@@ -452,7 +464,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
                 snowSpawnAccumulator -= SNOW_SPAWN_RATE
 
                 // Count current snowflakes
-                val currentSnowflakes = elements.count { it is Snowflake }
+                val currentSnowflakes = synchronized(elements) { elements.count { it is Snowflake } }
 
                 if (currentSnowflakes < MAX_ACTIVE_SNOWFLAKES) {
                     // Spawn amount based on typing intensity
@@ -462,7 +474,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
                     repeat(spawnCount) {
                         val randomX = (-100..1100).random().toFloat()
                         val layer = (0 until SNOW_LAYERS).random()
-                        elements.add(generateSnowflake(0f, 0f, Point(randomX.toInt(), 0), layer))
+                        pendingElements.add(generateSnowflake(0f, 0f, Point(randomX.toInt(), 0), layer))
                     }
                 }
             }
