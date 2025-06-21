@@ -24,6 +24,7 @@ import java.awt.geom.Line2D
 import java.util.*
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.JComponent
 import kotlin.math.cos
 import kotlin.math.sin
@@ -55,6 +56,8 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private val elements = Collections.synchronizedList(mutableListOf<PhysicsElement>())
     private val pendingElements = ConcurrentLinkedQueue<PhysicsElement>()
     private val plantElementCount = AtomicInteger(0)
+    private val chainParticleCount = AtomicInteger(0)
+    private val needsTrim = AtomicBoolean(false)
     private val settings: ThunderSettings get() = ThunderSettings.getInstance()
     private val random = Random()
     private val themes = Theme.entries.toTypedArray()
@@ -129,7 +132,10 @@ object ZeusThunderbolt : ApplicationActivationListener {
         synchronized(elements) {
             if (elements.size > maxParticles) {
                 val toRemove = elements.subList(0, elements.size - maxParticles)
-                toRemove.forEach { if (it is PlantElement) plantElementCount.decrementAndGet() }
+                toRemove.forEach {
+                    if (it is PlantElement) plantElementCount.decrementAndGet()
+                    if (it is ChainParticle) chainParticleCount.decrementAndGet()
+                }
                 toRemove.clear()
             }
         }
@@ -191,7 +197,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
                         point = point
                     )
                     pendingElements += reverseParticles
-                    trimParticles()
+                    needsTrim.set(true)
                 }
             }
         }
@@ -211,16 +217,19 @@ object ZeusThunderbolt : ApplicationActivationListener {
             }
             // Create chain particles for big jumps
             if (distance != null && distance > 50) {
-                val chainCount = synchronized(elements) { elements.count { it is ChainParticle } }
+                val chainCount = chainParticleCount.get()
                 if (chainCount < maxChainParticles) {
-                    pendingElements.addAll(generateChainParticles(
+                    val chains = generateChainParticles(
                         x0 = scrollOffsetX,
                         y0 = scrollOffsetY,
-                        lastPos, newPos
-                    ))
+                        start = lastPos,
+                        end = newPos
+                    )
+                    chainParticleCount.addAndGet(chains.size)
+                    pendingElements.addAll(chains)
                 }
             }
-            trimParticles()
+            needsTrim.set(true)
             lastPositions[caret] = caret.getPoint()
         }
         val caretListener = object : CaretListener {
@@ -305,10 +314,16 @@ object ZeusThunderbolt : ApplicationActivationListener {
                         }
                     }
                     elements.removeAll(deadElements)
+                    if (needsTrim.getAndSet(false)) {
+                        trimParticles()
+                    }
                 }
 
                 // Clean up in batch
-                deadElements.forEach { if (it is PlantElement) plantElementCount.decrementAndGet() }
+                deadElements.forEach {
+                    if (it is PlantElement) plantElementCount.decrementAndGet()
+                    if (it is ChainParticle) chainParticleCount.decrementAndGet()
+                }
                 if (particlePool.size < maxParticlePoolSize)
                     particlePool.addAll(deadParticles)
 
@@ -400,7 +415,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
                                 val plants = generatePlants(scrollOffsetX, scrollOffsetY, point)
                                 plantElementCount.addAndGet(plants.size)
                                 pendingElements.addAll(plants)
-                                trimParticles()
+                                needsTrim.set(true)
                             }
                         }
                     }
