@@ -111,6 +111,15 @@ object ZeusThunderbolt : ApplicationActivationListener {
         settings.butterflyParticlesEnabled = enabled
     }
 
+    const val DEFAULT_GRASS_AND_FLOWERS_ENABLED = false
+    private var grassAndFlowersEnabled = DEFAULT_GRASS_AND_FLOWERS_ENABLED
+
+    fun isGrassAndFlowersEnabled() = grassAndFlowersEnabled
+    fun setGrassAndFlowersEnabled(enabled: Boolean) {
+        grassAndFlowersEnabled = enabled
+        settings.grassAndFlowersEnabled = enabled
+    }
+
     private fun trimParticles() {
         if (elements.size > maxParticles) {
             elements.subList(0, elements.size - maxParticles).clear()
@@ -150,6 +159,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
         setReverseParticlesEnabled(settings.reverseParticlesEnabled)
         setSnowEnabled(settings.snowEnabled)
         setButterfliesEnabled(settings.butterflyParticlesEnabled)
+        setGrassAndFlowersEnabled(settings.grassAndFlowersEnabled)
         val editorFactory = EditorFactory.getInstance()
         val editors = mutableListOf<Editor>()
         val lastPositions = mutableMapOf<Caret, Point>()
@@ -485,6 +495,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
                 snowEnabled && random.nextFloat() in 0.7f..0.9f -> generateSnowflake(x0, y0, point)
                 stardustParticlesEnabled && random.nextFloat() > 0.8f -> generateStardustParticle(x0, y0, point)
                 butterflyParticlesEnabled && random.nextFloat() > 0.95f -> generateButterfly(x0, y0, point)
+                grassAndFlowersEnabled && random.nextFloat() > 0.85f -> generateGrassOrFlower(x0, y0, point)
                 regularParticlesEnabled -> generateRegularParticle(x0, y0, point)
                 else -> null
             }
@@ -611,6 +622,68 @@ object ZeusThunderbolt : ApplicationActivationListener {
             lifetime = (5..8).random().toFloat(),
             spotColor = spotColor,
             patternColor = patternColor
+        )
+    }
+
+    private fun generateGrassOrFlower(x0: Float, y0: Float, point: Point): PhysicsElement {
+        // 70% chance for grass, 30% chance for flower
+        return if (random.nextFloat() > 0.3f) {
+            generateGrass(x0, y0, point)
+        } else {
+            generateFlower(x0, y0, point)
+        }
+    }
+
+    private fun generateGrass(x0: Float, y0: Float, point: Point): Grass {
+        // Create varied grass types
+        val grassType = random.nextInt(4)
+        val baseColor = when (grassType) {
+            0 -> Color(34, 139, 34)   // Forest Green
+            1 -> Color(50, 205, 50)   // Lime Green
+            2 -> Color(124, 252, 0)   // Lawn Green
+            else -> Color(0, 128, 0)  // Green
+        }
+        
+        return Grass(
+            x0 = x0,
+            y0 = y0,
+            x = point.x.toFloat(),
+            y = point.y.toFloat() + (3..8).random(), // Grass grows slightly below the text line
+            height = (8..15).random().toFloat(),
+            width = (2..4).random().toFloat(),
+            color = baseColor,
+            swayPhase = random.nextFloat() * Math.PI.toFloat() * 2,
+            swaySpeed = (0.5f..1.5f).random(),
+            lifetime = (8..12).random().toFloat(),
+            grassType = grassType
+        )
+    }
+
+    private fun generateFlower(x0: Float, y0: Float, point: Point): Flower {
+        // Create varied flower types
+        val flowerType = random.nextInt(5)
+        val (petalColor, centerColor) = when (flowerType) {
+            0 -> Pair(Color(255, 192, 203), Color(255, 255, 0))  // Pink with yellow center
+            1 -> Pair(Color(255, 0, 0), Color(255, 255, 0))      // Red with yellow center
+            2 -> Pair(Color(255, 165, 0), Color(139, 69, 19))    // Orange with brown center
+            3 -> Pair(Color(138, 43, 226), Color(255, 255, 0))   // Purple with yellow center
+            else -> Pair(Color(255, 255, 255), Color(255, 255, 0)) // White with yellow center
+        }
+        
+        return Flower(
+            x0 = x0,
+            y0 = y0,
+            x = point.x.toFloat(),
+            y = point.y.toFloat() - (2..5).random(), // Flowers grow slightly above the text line
+            size = (6..10).random().toFloat(),
+            petalColor = petalColor,
+            centerColor = centerColor,
+            stemHeight = (12..20).random().toFloat(),
+            swayPhase = random.nextFloat() * Math.PI.toFloat() * 2,
+            swaySpeed = (0.3f..1.0f).random(),
+            lifetime = (10..15).random().toFloat(),
+            flowerType = flowerType,
+            petalCount = (5..8).random()
         )
     }
 
@@ -1578,6 +1651,275 @@ object ZeusThunderbolt : ApplicationActivationListener {
         }
     }
 
+    data class Grass(
+        override var x0: Float,
+        override var y0: Float,
+        override var x: Float,
+        override var y: Float,
+        var height: Float,
+        var width: Float,
+        var color: Color,
+        var swayPhase: Float,
+        var swaySpeed: Float,
+        var lifetime: Float,
+        var grassType: Int,
+        override var chainStrength: Float = 0f
+    ) : PhysicsElement {
+        override var isDead: Boolean = false
+        private var growthProgress: Float = 0f
+        private val maxGrowthTime: Float = 2f // Time to reach full height
+
+        override fun update(elements: List<PhysicsElement>) {
+            lifetime -= dt
+            if (lifetime <= 0) {
+                isDead = true
+                return
+            }
+
+            // Growth animation
+            if (growthProgress < maxGrowthTime) {
+                growthProgress += dt
+            }
+
+            // Swaying animation
+            swayPhase += swaySpeed * dt
+        }
+
+        override fun render(g: Graphics) {
+            val g2d = g.create() as Graphics2D
+            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+
+            // Calculate alpha based on lifetime
+            val alpha = (255 * (lifetime / 12f)).toInt().coerceIn(0, 255)
+            
+            // Calculate current height based on growth
+            val currentHeight = height * (growthProgress / maxGrowthTime).coerceIn(0f, 1f)
+            
+            // Calculate sway offset
+            val swayOffset = sin(swayPhase) * (width * 0.5f)
+
+            // Create grass blade path
+            val grassPath = Path2D.Float()
+            grassPath.moveTo(x, y)
+            
+            when (grassType) {
+                0 -> { // Straight blade
+                    grassPath.lineTo(x + swayOffset, y - currentHeight)
+                }
+                1 -> { // Curved blade
+                    grassPath.quadTo(
+                        x + swayOffset * 0.5f, y - currentHeight * 0.7f,
+                        x + swayOffset, y - currentHeight
+                    )
+                }
+                2 -> { // Wavy blade
+                    grassPath.curveTo(
+                        x + swayOffset * 0.3f, y - currentHeight * 0.3f,
+                        x + swayOffset * 0.7f, y - currentHeight * 0.7f,
+                        x + swayOffset, y - currentHeight
+                    )
+                }
+                else -> { // Multi-segment blade
+                    grassPath.quadTo(
+                        x, y - currentHeight * 0.5f,
+                        x + swayOffset * 0.5f, y - currentHeight * 0.8f
+                    )
+                    grassPath.quadTo(
+                        x + swayOffset * 0.8f, y - currentHeight * 0.9f,
+                        x + swayOffset, y - currentHeight
+                    )
+                }
+            }
+
+            // Draw grass with gradient
+            g2d.color = Color(color.red, color.green, color.blue, alpha)
+            g2d.stroke = BasicStroke(width, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+            g2d.draw(grassPath)
+
+            // Add highlights for realism
+            g2d.color = Color(
+                Math.min(255, color.red + 30),
+                Math.min(255, color.green + 30),
+                Math.min(255, color.blue + 30),
+                alpha / 2
+            )
+            g2d.stroke = BasicStroke(width * 0.3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+            g2d.draw(grassPath)
+
+            g2d.dispose()
+        }
+
+        override fun reset() {
+            isDead = false
+            lifetime = (8..12).random().toFloat()
+            growthProgress = 0f
+        }
+    }
+
+    data class Flower(
+        override var x0: Float,
+        override var y0: Float,
+        override var x: Float,
+        override var y: Float,
+        var size: Float,
+        var petalColor: Color,
+        var centerColor: Color,
+        var stemHeight: Float,
+        var swayPhase: Float,
+        var swaySpeed: Float,
+        var lifetime: Float,
+        var flowerType: Int,
+        var petalCount: Int,
+        override var chainStrength: Float = 0f
+    ) : PhysicsElement {
+        override var isDead: Boolean = false
+        private var bloomProgress: Float = 0f
+        private val maxBloomTime: Float = 3f // Time to reach full bloom
+
+        override fun update(elements: List<PhysicsElement>) {
+            lifetime -= dt
+            if (lifetime <= 0) {
+                isDead = true
+                return
+            }
+
+            // Bloom animation
+            if (bloomProgress < maxBloomTime) {
+                bloomProgress += dt
+            }
+
+            // Gentle swaying
+            swayPhase += swaySpeed * dt
+        }
+
+        override fun render(g: Graphics) {
+            val g2d = g.create() as Graphics2D
+            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+
+            // Calculate alpha based on lifetime
+            val alpha = (255 * (lifetime / 15f)).toInt().coerceIn(0, 255)
+            
+            // Calculate current size based on bloom
+            val currentSize = size * (bloomProgress / maxBloomTime).coerceIn(0f, 1f)
+            
+            // Calculate sway offset
+            val swayOffset = sin(swayPhase) * (size * 0.1f)
+
+            // Draw stem first
+            val stemBaseX = x
+            val stemBaseY = y
+            val stemTopX = x + swayOffset
+            val stemTopY = y - stemHeight
+            
+            g2d.color = Color(34, 139, 34, alpha) // Green stem
+            g2d.stroke = BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+            g2d.drawLine(stemBaseX.toInt(), stemBaseY.toInt(), stemTopX.toInt(), stemTopY.toInt())
+
+            // Draw flower head
+            g2d.translate(stemTopX.toDouble(), stemTopY.toDouble())
+
+            // Draw petals
+            g2d.color = Color(petalColor.red, petalColor.green, petalColor.blue, alpha)
+            
+            val angleStep = (Math.PI * 2) / petalCount
+            for (i in 0 until petalCount) {
+                val angle = i * angleStep
+                val petalLength = currentSize * 0.6f
+                val petalWidth = currentSize * 0.3f
+                
+                g2d.rotate(angle)
+                
+                when (flowerType) {
+                    0 -> { // Round petals
+                        g2d.fillOval(
+                            (-petalWidth / 2).toInt(),
+                            (-petalLength).toInt(),
+                            petalWidth.toInt(),
+                            petalLength.toInt()
+                        )
+                    }
+                    1 -> { // Pointed petals
+                        val petal = Path2D.Float()
+                        petal.moveTo(0f, 0f)
+                        petal.lineTo(-petalWidth / 2, -petalLength * 0.7f)
+                        petal.lineTo(0f, -petalLength)
+                        petal.lineTo(petalWidth / 2, -petalLength * 0.7f)
+                        petal.closePath()
+                        g2d.fill(petal)
+                    }
+                    2 -> { // Heart-shaped petals
+                        val petal = Path2D.Float()
+                        petal.moveTo(0f, 0f)
+                        petal.curveTo(-petalWidth / 3, -petalLength * 0.8f, -petalWidth / 2, -petalLength * 0.5f, 0f, -petalLength)
+                        petal.curveTo(petalWidth / 2, -petalLength * 0.5f, petalWidth / 3, -petalLength * 0.8f, 0f, 0f)
+                        g2d.fill(petal)
+                    }
+                    3 -> { // Star-shaped petals  
+                        val petal = Path2D.Float()
+                        petal.moveTo(0f, 0f)
+                        petal.lineTo(-petalWidth / 4, -petalLength * 0.6f)
+                        petal.lineTo(-petalWidth / 2, -petalLength * 0.4f)
+                        petal.lineTo(-petalWidth / 4, -petalLength * 0.8f)
+                        petal.lineTo(0f, -petalLength)
+                        petal.lineTo(petalWidth / 4, -petalLength * 0.8f)
+                        petal.lineTo(petalWidth / 2, -petalLength * 0.4f)
+                        petal.lineTo(petalWidth / 4, -petalLength * 0.6f)
+                        petal.closePath()
+                        g2d.fill(petal)
+                    }
+                    else -> { // Simple oval petals
+                        g2d.fillOval(
+                            (-petalWidth / 3).toInt(),
+                            (-petalLength).toInt(),
+                            (petalWidth * 2 / 3).toInt(),
+                            petalLength.toInt()
+                        )
+                    }
+                }
+                
+                g2d.rotate(-angle)
+            }
+
+            // Draw flower center
+            g2d.color = Color(centerColor.red, centerColor.green, centerColor.blue, alpha)
+            val centerSize = currentSize * 0.3f
+            g2d.fillOval(
+                (-centerSize / 2).toInt(),
+                (-centerSize / 2).toInt(),
+                centerSize.toInt(),
+                centerSize.toInt()
+            )
+
+            // Add center details
+            g2d.color = Color(
+                Math.max(0, centerColor.red - 40),
+                Math.max(0, centerColor.green - 40),
+                Math.max(0, centerColor.blue - 40),
+                alpha / 2
+            )
+            val detailSize = centerSize * 0.15f
+            for (i in 0..4) {
+                val detailAngle = i * Math.PI * 2 / 5
+                val detailX = (cos(detailAngle) * centerSize * 0.2f).toInt()
+                val detailY = (sin(detailAngle) * centerSize * 0.2f).toInt()
+                g2d.fillOval(
+                    detailX - (detailSize / 2).toInt(),
+                    detailY - (detailSize / 2).toInt(),
+                    detailSize.toInt(),
+                    detailSize.toInt()
+                )
+            }
+
+            g2d.dispose()
+        }
+
+        override fun reset() {
+            isDead = false
+            lifetime = (10..15).random().toFloat()
+            bloomProgress = 0f
+        }
+    }
+
     // Add force field effect
     fun applyForceField(particle: Particle) {
         val fieldStrength = 50f
@@ -1608,6 +1950,7 @@ class ThunderSettings : PersistentStateComponent<ThunderSettings> {
     var snowEnabled: Boolean = ZeusThunderbolt.DEFAULT_SNOW_ENABLED
     var reverseParticlesEnabled: Boolean = ZeusThunderbolt.DEFAULT_REVERSE_PARTICLES_ENABLED
     var butterflyParticlesEnabled: Boolean = ZeusThunderbolt.DEFAULT_BUTTERFLY_PARTICLES_ENABLED
+    var grassAndFlowersEnabled: Boolean = ZeusThunderbolt.DEFAULT_GRASS_AND_FLOWERS_ENABLED
 
     override fun getState(): ThunderSettings = this
 

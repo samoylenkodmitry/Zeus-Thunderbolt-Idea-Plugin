@@ -25,7 +25,8 @@ class SettingsUI : Configurable {
             component.regularParticlesEnabled != ZeusThunderbolt.isRegularParticlesEnabled() ||
             component.stardustParticlesEnabled != ZeusThunderbolt.isStardustParticlesEnabled() ||
             component.reverseParticlesEnabled != ZeusThunderbolt.isReverseParticlesEnabled() ||
-            component.butterflyParticlesEnabled != ZeusThunderbolt.isButterfliesEnabled()
+            component.butterflyParticlesEnabled != ZeusThunderbolt.isButterfliesEnabled() ||
+            component.grassAndFlowersEnabled != ZeusThunderbolt.isGrassAndFlowersEnabled()
         } ?: false
 
     override fun apply() {
@@ -36,6 +37,7 @@ class SettingsUI : Configurable {
             ZeusThunderbolt.setStardustParticlesEnabled(component.stardustParticlesEnabled)
             ZeusThunderbolt.setReverseParticlesEnabled(component.reverseParticlesEnabled)
             ZeusThunderbolt.setButterfliesEnabled(component.butterflyParticlesEnabled)
+            ZeusThunderbolt.setGrassAndFlowersEnabled(component.grassAndFlowersEnabled)
         }
     }
 
@@ -47,6 +49,7 @@ class SettingsUI : Configurable {
             component.stardustParticlesEnabled = ZeusThunderbolt.isStardustParticlesEnabled()
             component.reverseParticlesEnabled = ZeusThunderbolt.isReverseParticlesEnabled()
             component.butterflyParticlesEnabled = ZeusThunderbolt.isButterfliesEnabled()
+            component.grassAndFlowersEnabled = ZeusThunderbolt.isGrassAndFlowersEnabled()
         }
     }
 
@@ -62,6 +65,7 @@ class ThunderSettingsComponent {
     private val stardustParticlesCheckbox = JBCheckBox("Enable Stardust Particles", ZeusThunderbolt.isStardustParticlesEnabled())
     private val reverseParticlesCheckbox = JBCheckBox("Enable Reverse Particles", ZeusThunderbolt.isReverseParticlesEnabled())
     private val butterflyParticlesCheckbox = JBCheckBox("Enable Butterfly Particles", ZeusThunderbolt.isButterfliesEnabled())
+    private val grassAndFlowersCheckbox = JBCheckBox("Enable Grass and Flowers", ZeusThunderbolt.isGrassAndFlowersEnabled())
     val panel: JPanel
 
     init {
@@ -73,6 +77,7 @@ class ThunderSettingsComponent {
             .addComponent(snowCheckbox)
             .addComponent(reverseParticlesCheckbox)
             .addComponent(butterflyParticlesCheckbox)
+            .addComponent(grassAndFlowersCheckbox)
             .addComponentFillVertically(JPanel(), 0)
             .panel
     }
@@ -111,5 +116,11 @@ class ThunderSettingsComponent {
         get() = butterflyParticlesCheckbox.isSelected
         set(value) {
             butterflyParticlesCheckbox.isSelected = value
+        }
+
+    var grassAndFlowersEnabled: Boolean
+        get() = grassAndFlowersCheckbox.isSelected
+        set(value) {
+            grassAndFlowersCheckbox.isSelected = value
         }
 }
