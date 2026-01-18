@@ -1,3 +1,6 @@
+![JetBrains Plugin Downloads](https://img.shields.io/jetbrains/plugin/d/25866-zeus-thunderbolt)
+
+
 # Zeus Thunderbold Intellij Idea Plugin
 
 
