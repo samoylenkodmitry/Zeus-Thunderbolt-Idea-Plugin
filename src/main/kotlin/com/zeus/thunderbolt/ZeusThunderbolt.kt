@@ -39,6 +39,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private const val maxParticles = 2500
     private const val maxChainParticles = 30
     private const val maxParticlePoolSize = 3000
+    private const val MAX_INTERACTION_NEIGHBORS = 120
     private const val WIND_CHANGE_INTERVAL = 2f  // Wind changes direction every 2 seconds
     private const val MAX_WIND_FORCE = 100f
     private var currentWindForce = 0f
@@ -123,6 +124,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
     private inline fun <reified T : PhysicsElement> Collection<PhysicsElement>.countType() =
         count { it is T }
+
+    private fun interactionStep(size: Int): Int =
+        (size / MAX_INTERACTION_NEIGHBORS).coerceAtLeast(1)
 
     private fun trimParticlesLocked() {
         val overflow = elements.size - maxParticles
@@ -211,16 +215,18 @@ object ZeusThunderbolt : ApplicationActivationListener {
             val editor = event.editor
             currEditorObj.set(System.identityHashCode(editor))
             val caret = event.caret ?: return@lambda
+            val caretCount = editor.caretModel.caretCount.coerceAtLeast(1)
+            val particlesPerCaret = (10f / sqrt(caretCount.toFloat())).toInt().coerceAtLeast(1)
             val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
             val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
             val newPos = caret.getPoint()
             val lastPos = lastPositions[caret]
             val distance = lastPos?.distance(newPos)
             if (distance == null || distance > 1) {
-                addElements(generateParticles(x0 = scrollOffsetX, y0 = scrollOffsetY, newPos))
+                addElements(generateParticles(x0 = scrollOffsetX, y0 = scrollOffsetY, newPos, particlesPerCaret))
             }
             // Create chain particles for big jumps
-            if (distance != null && distance > 50 && activeChainParticles < maxChainParticles) {
+            if (distance != null && distance > 50 && activeChainParticles < maxChainParticles && caretCount <= 5) {
                 addElements(generateChainParticles(
                     x0 = scrollOffsetX,
                     y0 = scrollOffsetY,
@@ -701,7 +707,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
             y += nearbyForce.y * dt
 
             // Find nearby snowflakes
-            for (other in elements) {
+            val snowStep = interactionStep(elements.size)
+            for (i in elements.indices step snowStep) {
+                val other = elements[i]
                 if (other is Snowflake && other != this && other.layer == layer) {
                     val dx = other.x - x
                     val dy = other.y - y
@@ -905,7 +913,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
             force.y *= 0.95f
 
             // Chain behavior
-            for (other in elements)
+            val chainStep = interactionStep(elements.size)
+            for (i in elements.indices step chainStep) {
+                val other = elements[i]
                 if (other != this && other.chainStrength > 0) {
                     val dx = other.x - x
                     val dy = other.y - y
@@ -916,6 +926,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
                         force.y += dy * strength * dt
                     }
                 }
+            }
 
             lifetime -= dt
             if (lifetime <= 0) isDead = true
@@ -1086,7 +1097,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
             force.y *= randomFriction
 
             // Interact with nearby particles
-            for (other in elements) {
+            val particleStep = interactionStep(elements.size)
+            for (i in elements.indices step particleStep) {
+                val other = elements[i]
                 if (other != this) {
                     val dx = other.x - x
                     val dy = other.y - y
