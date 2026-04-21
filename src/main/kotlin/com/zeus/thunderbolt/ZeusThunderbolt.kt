@@ -83,41 +83,74 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private var snowEnabled = DEFAULT_SNOW_ENABLED
 
     const val DEFAULT_REGULAR_PARTICLES_ENABLED = true
+    const val DEFAULT_REGULAR_PARTICLES_INTENSITY = 100
 
     private var regularParticlesEnabled = DEFAULT_REGULAR_PARTICLES_ENABLED
+    private var regularParticlesIntensity = DEFAULT_REGULAR_PARTICLES_INTENSITY
 
     fun isRegularParticlesEnabled() = regularParticlesEnabled
     fun setRegularParticlesEnabled(enabled: Boolean) {
         regularParticlesEnabled = enabled
         settings.regularParticlesEnabled = enabled
     }
+    fun getRegularParticlesIntensity() = regularParticlesIntensity
+    fun setRegularParticlesIntensity(intensity: Int) {
+        regularParticlesIntensity = intensity.coerceIn(0, 100)
+        settings.regularParticlesIntensity = regularParticlesIntensity
+    }
 
     const val DEFAULT_STARDUST_PARTICLES_ENABLED = false
+    const val DEFAULT_STARDUST_PARTICLES_INTENSITY = 100
 
     private var stardustParticlesEnabled = DEFAULT_STARDUST_PARTICLES_ENABLED
+    private var stardustParticlesIntensity = DEFAULT_STARDUST_PARTICLES_INTENSITY
 
     fun isStardustParticlesEnabled() = stardustParticlesEnabled
     fun setStardustParticlesEnabled(enabled: Boolean) {
         stardustParticlesEnabled = enabled
         settings.stardustParticlesEnabled = enabled
     }
+    fun getStardustParticlesIntensity() = stardustParticlesIntensity
+    fun setStardustParticlesIntensity(intensity: Int) {
+        stardustParticlesIntensity = intensity.coerceIn(0, 100)
+        settings.stardustParticlesIntensity = stardustParticlesIntensity
+    }
 
     const val DEFAULT_REVERSE_PARTICLES_ENABLED = false
+    const val DEFAULT_REVERSE_PARTICLES_INTENSITY = 100
     private var reverseParticlesEnabled = DEFAULT_REVERSE_PARTICLES_ENABLED
+    private var reverseParticlesIntensity = DEFAULT_REVERSE_PARTICLES_INTENSITY
 
     fun isReverseParticlesEnabled() = reverseParticlesEnabled
     fun setReverseParticlesEnabled(enabled: Boolean) {
         reverseParticlesEnabled = enabled
         settings.reverseParticlesEnabled = enabled
     }
+    fun getReverseParticlesIntensity() = reverseParticlesIntensity
+    fun setReverseParticlesIntensity(intensity: Int) {
+        reverseParticlesIntensity = intensity.coerceIn(0, 100)
+        settings.reverseParticlesIntensity = reverseParticlesIntensity
+    }
 
     const val DEFAULT_BUTTERFLY_PARTICLES_ENABLED = false
+    const val DEFAULT_BUTTERFLY_PARTICLES_INTENSITY = 100
     private var butterflyParticlesEnabled = DEFAULT_BUTTERFLY_PARTICLES_ENABLED
+    private var butterflyParticlesIntensity = DEFAULT_BUTTERFLY_PARTICLES_INTENSITY
 
     fun isButterfliesEnabled() = butterflyParticlesEnabled
     fun setButterfliesEnabled(enabled: Boolean) {
         butterflyParticlesEnabled = enabled
         settings.butterflyParticlesEnabled = enabled
+    }
+    fun getButterflyParticlesIntensity() = butterflyParticlesIntensity
+    fun setButterflyParticlesIntensity(intensity: Int) {
+        butterflyParticlesIntensity = intensity.coerceIn(0, 100)
+        settings.butterflyParticlesIntensity = butterflyParticlesIntensity
+    }
+    fun getSnowIntensity() = snowIntensity
+    fun setSnowIntensity(intensity: Int) {
+        snowIntensity = intensity.coerceIn(0, 100)
+        settings.snowIntensity = snowIntensity
     }
 
     private inline fun <T> withElements(block: MutableList<PhysicsElement>.() -> T): T =
@@ -207,14 +240,20 @@ object ZeusThunderbolt : ApplicationActivationListener {
         snowEnabled = enabled
         settings.snowEnabled = enabled
     }
+    private var snowIntensity = 100
 
     private fun initPlugin() {
         setTheme(settings.themeIndex)
         setRegularParticlesEnabled(settings.regularParticlesEnabled)
+        setRegularParticlesIntensity(settings.regularParticlesIntensity)
         setStardustParticlesEnabled(settings.stardustParticlesEnabled)
+        setStardustParticlesIntensity(settings.stardustParticlesIntensity)
         setReverseParticlesEnabled(settings.reverseParticlesEnabled)
+        setReverseParticlesIntensity(settings.reverseParticlesIntensity)
         setSnowEnabled(settings.snowEnabled)
+        setSnowIntensity(settings.snowIntensity)
         setButterfliesEnabled(settings.butterflyParticlesEnabled)
+        setButterflyParticlesIntensity(settings.butterflyParticlesIntensity)
         val editorFactory = EditorFactory.getInstance()
         val editors = mutableListOf<Editor>()
         val lastPositions = mutableMapOf<Caret, Point>()
@@ -238,12 +277,13 @@ object ZeusThunderbolt : ApplicationActivationListener {
                     val loadFactor =
                         (activeReverseParticles.toFloat() / MAX_ACTIVE_REVERSE_PARTICLES).coerceIn(0f, 1f)
                     // Create reverse particles at deletion point
+                    val reverseIntensityFactor = reverseParticlesIntensity.toFloat() / 100f
                     addElement(
                         generateReverseParticle(
                             x0 = scrollOffsetX,
                             y0 = scrollOffsetY,
                             point = point,
-                            particleCount = (10 - (6 * loadFactor)).toInt().coerceAtLeast(3),
+                            particleCount = ((10 - (6 * loadFactor)) * reverseIntensityFactor).toInt().coerceAtLeast(1),
                             lifetimeFrames = (90 - (40 * loadFactor)).toInt().coerceAtLeast(30)
                         )
                     )
@@ -256,7 +296,8 @@ object ZeusThunderbolt : ApplicationActivationListener {
             currEditorObj.set(System.identityHashCode(editor))
             val caret = event.caret ?: return@lambda
             val caretCount = editor.caretModel.caretCount.coerceAtLeast(1)
-            val particlesPerCaret = (10f / sqrt(caretCount.toFloat())).toInt().coerceAtLeast(1)
+            val regularIntensityFactor = regularParticlesIntensity.toFloat() / 100f
+            val particlesPerCaret = ((10f / sqrt(caretCount.toFloat())) * regularIntensityFactor).toInt().coerceAtLeast(1)
             val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
             val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
             val newPos = caret.getPoint()
@@ -491,12 +532,14 @@ object ZeusThunderbolt : ApplicationActivationListener {
             while (snowSpawnAccumulator >= SNOW_SPAWN_RATE) {
                 snowSpawnAccumulator -= SNOW_SPAWN_RATE
 
-                if (activeSnowflakes < MAX_ACTIVE_SNOWFLAKES) {
+                val maxActiveSnowflakes = (MAX_ACTIVE_SNOWFLAKES * (snowIntensity / 100f)).toInt().coerceAtLeast(1)
+                if (activeSnowflakes < maxActiveSnowflakes) {
                     // Spawn amount based on typing intensity
                     val spawnCount = (MIN_SNOW_SPAWN +
                             (MAX_SNOW_SPAWN - MIN_SNOW_SPAWN) * typingSpeed).toInt()
+                        .coerceAtLeast(1) * (snowIntensity / 100f).coerceAtLeast(0.1f)
 
-                    val snowflakes = List(spawnCount) {
+                    val snowflakes = List(spawnCount.toInt().coerceAtLeast(1)) {
                         val randomX = (-100..1100).random().toFloat()
                         val layer = (0 until SNOW_LAYERS).random()
                         generateSnowflake(0f, 0f, Point(randomX.toInt(), 0), layer)
@@ -555,16 +598,25 @@ object ZeusThunderbolt : ApplicationActivationListener {
         }
     }
 
-    private fun generateParticles(x0: Float, y0: Float, point: Point, count: Int = 10): List<PhysicsElement> =
-        (1..count).mapNotNull {
-            when {
-                snowEnabled && random.nextFloat() in 0.7f..0.9f -> generateSnowflake(x0, y0, point)
-                stardustParticlesEnabled && random.nextFloat() > 0.8f -> generateStardustParticle(x0, y0, point)
-                butterflyParticlesEnabled && random.nextFloat() > 0.95f -> generateButterfly(x0, y0, point)
-                regularParticlesEnabled -> generateRegularParticle(x0, y0, point)
-                else -> null
+    private fun generateParticles(x0: Float, y0: Float, point: Point, count: Int = 10): List<PhysicsElement> {
+        val effects = mutableListOf<Pair<Int, () -> PhysicsElement>>()
+        if (snowEnabled) effects += snowIntensity.coerceAtLeast(1) to { generateSnowflake(x0, y0, point) }
+        if (stardustParticlesEnabled) effects += stardustParticlesIntensity.coerceAtLeast(1) to { generateStardustParticle(x0, y0, point) }
+        if (butterflyParticlesEnabled) effects += butterflyParticlesIntensity.coerceAtLeast(1) to { generateButterfly(x0, y0, point) }
+        if (regularParticlesEnabled) effects += regularParticlesIntensity.coerceAtLeast(1) to { generateRegularParticle(x0, y0, point) }
+        if (effects.isEmpty()) return emptyList()
+
+        val totalWeight = effects.sumOf { it.first }
+        return (1..count).map {
+            val randomWeight = random.nextInt(totalWeight)
+            var cumulative = 0
+            val selected = effects.first { (weight, _) ->
+                cumulative += weight
+                randomWeight < cumulative
             }
+            selected.second.invoke()
         }
+    }
 
     private fun generateRegularParticle(x0: Float, y0: Float, point: Point) =
         particlePool.poll()?.apply {
@@ -1692,10 +1744,15 @@ private fun ClosedFloatingPointRange<Float>.random(): Float =
 class ThunderSettings : PersistentStateComponent<ThunderSettings> {
     var themeIndex: Int = -1 // Default to "None" theme
     var regularParticlesEnabled: Boolean = ZeusThunderbolt.DEFAULT_REGULAR_PARTICLES_ENABLED
+    var regularParticlesIntensity: Int = ZeusThunderbolt.DEFAULT_REGULAR_PARTICLES_INTENSITY
     var stardustParticlesEnabled: Boolean = ZeusThunderbolt.DEFAULT_STARDUST_PARTICLES_ENABLED
+    var stardustParticlesIntensity: Int = ZeusThunderbolt.DEFAULT_STARDUST_PARTICLES_INTENSITY
     var snowEnabled: Boolean = ZeusThunderbolt.DEFAULT_SNOW_ENABLED
+    var snowIntensity: Int = 100
     var reverseParticlesEnabled: Boolean = ZeusThunderbolt.DEFAULT_REVERSE_PARTICLES_ENABLED
+    var reverseParticlesIntensity: Int = ZeusThunderbolt.DEFAULT_REVERSE_PARTICLES_INTENSITY
     var butterflyParticlesEnabled: Boolean = ZeusThunderbolt.DEFAULT_BUTTERFLY_PARTICLES_ENABLED
+    var butterflyParticlesIntensity: Int = ZeusThunderbolt.DEFAULT_BUTTERFLY_PARTICLES_INTENSITY
 
     override fun getState(): ThunderSettings = this
 
