@@ -40,6 +40,8 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private const val maxChainParticles = 30
     private const val maxParticlePoolSize = 3000
     private const val MAX_INTERACTION_NEIGHBORS = 120
+    private const val MAX_ACTIVE_REVERSE_PARTICLES = 8
+    private const val REVERSE_PARTICLE_COOLDOWN_NS = 120_000_000L
     private const val WIND_CHANGE_INTERVAL = 2f  // Wind changes direction every 2 seconds
     private const val MAX_WIND_FORCE = 100f
     private var currentWindForce = 0f
@@ -55,6 +57,8 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private var renderElementsSnapshot: List<PhysicsElement> = emptyList()
     private var activeSnowflakes = 0
     private var activeChainParticles = 0
+    private var activeReverseParticles = 0
+    private var lastReverseSpawnNs = 0L
     private val settings: ThunderSettings get() = ThunderSettings.getInstance()
     private val random = Random()
     private val themes = Theme.entries.toTypedArray()
@@ -135,6 +139,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
         val toRemove = elements.subList(0, overflow).toList()
         activeSnowflakes = (activeSnowflakes - toRemove.countType<Snowflake>()).coerceAtLeast(0)
         activeChainParticles = (activeChainParticles - toRemove.countType<ChainParticle>()).coerceAtLeast(0)
+        activeReverseParticles = (activeReverseParticles - toRemove.countType<ReverseParticle>()).coerceAtLeast(0)
         elements.subList(0, overflow).clear()
     }
 
@@ -143,6 +148,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
         withElements {
             activeSnowflakes += newElements.countType<Snowflake>()
             activeChainParticles += newElements.countType<ChainParticle>()
+            activeReverseParticles += newElements.countType<ReverseParticle>()
             addAll(newElements)
             trimParticlesLocked()
         }
@@ -193,18 +199,27 @@ object ZeusThunderbolt : ApplicationActivationListener {
         val documentListener = object : DocumentListener {
             override fun beforeDocumentChange(event: DocumentEvent) {
                 if (event.oldLength > 0 && event.newLength == 0 && reverseParticlesEnabled) {
+                    val now = System.nanoTime()
+                    if (now - lastReverseSpawnNs < REVERSE_PARTICLE_COOLDOWN_NS) return
+                    if (activeReverseParticles >= MAX_ACTIVE_REVERSE_PARTICLES) return
+                    lastReverseSpawnNs = now
+
                     // This is a deletion event
                     val editor = editorFactory.getEditors(event.document).firstOrNull() ?: return
                     val point = event.getPoint(editor)
                     val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
                     val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
-                    
+
+                    val loadFactor =
+                        (activeReverseParticles.toFloat() / MAX_ACTIVE_REVERSE_PARTICLES).coerceIn(0f, 1f)
                     // Create reverse particles at deletion point
                     addElement(
                         generateReverseParticle(
                             x0 = scrollOffsetX,
                             y0 = scrollOffsetY,
-                            point = point
+                            point = point,
+                            particleCount = (10 - (6 * loadFactor)).toInt().coerceAtLeast(3),
+                            lifetimeFrames = (90 - (40 * loadFactor)).toInt().coerceAtLeast(30)
                         )
                     )
                 }
@@ -315,9 +330,11 @@ object ZeusThunderbolt : ApplicationActivationListener {
                 if (deadElements.isNotEmpty()) {
                     val deadSnowflakes = deadElements.countType<Snowflake>()
                     val deadChains = deadElements.countType<ChainParticle>()
+                    val deadReverse = deadElements.countType<ReverseParticle>()
                     withElements {
                         activeSnowflakes = (activeSnowflakes - deadSnowflakes).coerceAtLeast(0)
                         activeChainParticles = (activeChainParticles - deadChains).coerceAtLeast(0)
+                        activeReverseParticles = (activeReverseParticles - deadReverse).coerceAtLeast(0)
                         removeAll(deadElements)
                     }
                 }
@@ -798,16 +815,21 @@ object ZeusThunderbolt : ApplicationActivationListener {
         }
     }
 
-    private fun generateReverseParticle(x0: Float, y0: Float, point: Point): ReverseParticle {
+    private fun generateReverseParticle(
+        x0: Float,
+        y0: Float,
+        point: Point,
+        particleCount: Int = 10,
+        lifetimeFrames: Int = 90
+    ): ReverseParticle {
         // Create a group of particles to simulate together
-        val particleGroup = List(10) {
+        val particleGroup = List(particleCount) {
             generateRegularParticle(x0, y0, point)
         }
         val snapshots = mutableListOf<ParticleSnapshot>()
 
         // Simulate particles together
-        val lifetime = 90
-        repeat(lifetime) { frame ->
+        repeat(lifetimeFrames) {
             // Update all particles together so they interact
             for (particle in particleGroup) particle.update(particleGroup)
 
