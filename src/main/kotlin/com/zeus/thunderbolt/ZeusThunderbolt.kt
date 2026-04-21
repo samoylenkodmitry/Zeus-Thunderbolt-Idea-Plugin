@@ -355,9 +355,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
                     if (!effectsSuspendedByPowerSave) {
                         clearEffectsState()
                         effectsSuspendedByPowerSave = true
-                    }
-                    for (c in containers.values) {
-                        if (c.isShowing && c.isVisible) c.repaint()
+                        for (c in containers.values) {
+                            if (c.isShowing && c.isVisible) c.repaint()
+                        }
                     }
                     delay(250)
                     continue
