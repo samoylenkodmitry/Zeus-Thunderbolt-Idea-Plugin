@@ -27,7 +27,6 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.*
 import java.awt.geom.Ellipse2D
 import java.awt.geom.Path2D
@@ -40,6 +39,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private const val maxParticles = 2500
     private const val maxChainParticles = 30
     private const val maxParticlePoolSize = 3000
+    private const val MAX_INTERACTION_NEIGHBORS = 120
+    private const val MAX_ACTIVE_REVERSE_PARTICLES = 8
+    private const val REVERSE_PARTICLE_COOLDOWN_NS = 120_000_000L
     private const val WIND_CHANGE_INTERVAL = 2f  // Wind changes direction every 2 seconds
     private const val MAX_WIND_FORCE = 100f
     private var currentWindForce = 0f
@@ -49,7 +51,14 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private var lastFrameTime = System.nanoTime()
     private var dt = 0f
     private val particlePool = ConcurrentLinkedQueue<Particle>()
-    private val elements = CopyOnWriteArrayList<PhysicsElement>()
+    private val elements = ArrayList<PhysicsElement>(maxParticles)
+    private val elementsLock = Any()
+    @Volatile
+    private var renderElementsSnapshot: List<PhysicsElement> = emptyList()
+    private var activeSnowflakes = 0
+    private var activeChainParticles = 0
+    private var activeReverseParticles = 0
+    private var lastReverseSpawnNs = 0L
     private val settings: ThunderSettings get() = ThunderSettings.getInstance()
     private val random = Random()
     private val themes = Theme.entries.toTypedArray()
@@ -111,11 +120,67 @@ object ZeusThunderbolt : ApplicationActivationListener {
         settings.butterflyParticlesEnabled = enabled
     }
 
-    private fun trimParticles() {
-        if (elements.size > maxParticles) {
-            elements.subList(0, elements.size - maxParticles).clear()
+    private inline fun <T> withElements(block: MutableList<PhysicsElement>.() -> T): T =
+        synchronized(elementsLock) { elements.block() }
+
+    private fun snapshotElements(): List<PhysicsElement> =
+        synchronized(elementsLock) { elements.toList() }
+
+    private data class ElementTypeCounts(val snowflakes: Int = 0, val chains: Int = 0, val reverse: Int = 0)
+
+    private fun Collection<PhysicsElement>.typeCounts(): ElementTypeCounts {
+        var snowflakes = 0
+        var chains = 0
+        var reverse = 0
+        for (element in this) {
+            when (element) {
+                is Snowflake -> snowflakes++
+                is ChainParticle -> chains++
+                is ReverseParticle -> reverse++
+                else -> Unit
+            }
+        }
+        return ElementTypeCounts(snowflakes, chains, reverse)
+    }
+
+    private fun interactionStep(size: Int): Int =
+        (size / MAX_INTERACTION_NEIGHBORS).coerceAtLeast(1)
+
+    private fun trimParticlesLocked() {
+        val overflow = elements.size - maxParticles
+        if (overflow <= 0) return
+
+        val removed = elements.subList(0, overflow)
+        val (removedSnowflakes, removedChains, removedReverse) = removed.typeCounts()
+        activeSnowflakes = (activeSnowflakes - removedSnowflakes).coerceAtLeast(0)
+        activeChainParticles = (activeChainParticles - removedChains).coerceAtLeast(0)
+        activeReverseParticles = (activeReverseParticles - removedReverse).coerceAtLeast(0)
+        removed.clear()
+    }
+
+    private fun addElements(newElements: Collection<PhysicsElement>) {
+        if (newElements.isEmpty()) return
+        val (addedSnowflakes, addedChains, addedReverse) = newElements.typeCounts()
+        withElements {
+            activeSnowflakes += addedSnowflakes
+            activeChainParticles += addedChains
+            activeReverseParticles += addedReverse
+            addAll(newElements)
+            trimParticlesLocked()
         }
     }
+
+    private fun addElement(element: PhysicsElement) = withElements {
+        when (element) {
+            is Snowflake -> activeSnowflakes++
+            is ChainParticle -> activeChainParticles++
+            is ReverseParticle -> activeReverseParticles++
+            else -> Unit
+        }
+        add(element)
+        trimParticlesLocked()
+    }
+    private inline fun addElement(factory: () -> PhysicsElement) = addElement(factory())
 
     override fun applicationActivated(ideFrame: IdeFrame) {
         ZeusThunderbolt
@@ -159,20 +224,29 @@ object ZeusThunderbolt : ApplicationActivationListener {
         val documentListener = object : DocumentListener {
             override fun beforeDocumentChange(event: DocumentEvent) {
                 if (event.oldLength > 0 && event.newLength == 0 && reverseParticlesEnabled) {
+                    val now = System.nanoTime()
+                    if (now - lastReverseSpawnNs < REVERSE_PARTICLE_COOLDOWN_NS) return
+                    if (activeReverseParticles >= MAX_ACTIVE_REVERSE_PARTICLES) return
+                    lastReverseSpawnNs = now
+
                     // This is a deletion event
                     val editor = editorFactory.getEditors(event.document).firstOrNull() ?: return
                     val point = event.getPoint(editor)
                     val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
                     val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
-                    
+
+                    val loadFactor =
+                        (activeReverseParticles.toFloat() / MAX_ACTIVE_REVERSE_PARTICLES).coerceIn(0f, 1f)
                     // Create reverse particles at deletion point
-                    val reverseParticles = generateReverseParticle(
-                        x0 = scrollOffsetX,
-                        y0 = scrollOffsetY,
-                        point = point
+                    addElement(
+                        generateReverseParticle(
+                            x0 = scrollOffsetX,
+                            y0 = scrollOffsetY,
+                            point = point,
+                            particleCount = (10 - (6 * loadFactor)).toInt().coerceAtLeast(3),
+                            lifetimeFrames = (90 - (40 * loadFactor)).toInt().coerceAtLeast(30)
+                        )
                     )
-                    elements += reverseParticles
-                    trimParticles()
                 }
             }
         }
@@ -181,27 +255,24 @@ object ZeusThunderbolt : ApplicationActivationListener {
             val editor = event.editor
             currEditorObj.set(System.identityHashCode(editor))
             val caret = event.caret ?: return@lambda
+            val caretCount = editor.caretModel.caretCount.coerceAtLeast(1)
+            val particlesPerCaret = (10f / sqrt(caretCount.toFloat())).toInt().coerceAtLeast(1)
             val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
             val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
             val newPos = caret.getPoint()
             val lastPos = lastPositions[caret]
             val distance = lastPos?.distance(newPos)
             if (distance == null || distance > 1) {
-                val newParticles = generateParticles(x0 = scrollOffsetX, y0 = scrollOffsetY, newPos)
-                elements.addAll(newParticles)
+                addElements(generateParticles(x0 = scrollOffsetX, y0 = scrollOffsetY, newPos, particlesPerCaret))
             }
             // Create chain particles for big jumps
-            if (distance != null && distance > 50) {
-                val chainCount = elements.count { it is ChainParticle }
-                if (chainCount < maxChainParticles) {
-                    elements += generateChainParticles(
-                        x0 = scrollOffsetX,
-                        y0 = scrollOffsetY,
-                        lastPos, newPos
-                    )
-                }
+            if (distance != null && distance > 50 && activeChainParticles < maxChainParticles && caretCount <= 5) {
+                addElements(generateChainParticles(
+                    x0 = scrollOffsetX,
+                    y0 = scrollOffsetY,
+                    lastPos, newPos
+                ))
             }
-            trimParticles()
             lastPositions[caret] = caret.getPoint()
         }
         val caretListener = object : CaretListener {
@@ -248,7 +319,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
                 if (System.identityHashCode(editor) != currEditorObj.get()) return
                 val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
                 val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
-                for (e in elements) {
+                for (e in renderElementsSnapshot) {
                     val dx = e.x0 - scrollOffsetX
                     val dy = e.y0 - scrollOffsetY
                     g.translate(dx.toInt(), dy.toInt())
@@ -265,11 +336,13 @@ object ZeusThunderbolt : ApplicationActivationListener {
                 dt = ((currentTime - lastFrameTime) / 1_000_000_000f).coerceAtMost(0.032f)
                 lastFrameTime = currentTime
 
+                val frameElements = snapshotElements()
+                renderElementsSnapshot = frameElements
                 val deadElements = HashSet<PhysicsElement>()
                 val deadParticles = mutableListOf<Particle>()
 
-                for (e in elements) {
-                    e.update(elements)
+                for (e in frameElements) {
+                    e.update(frameElements)
                     if (e.isDead) {
                         deadElements += e
                         if (e is Particle) {
@@ -279,9 +352,18 @@ object ZeusThunderbolt : ApplicationActivationListener {
                 }
 
                 // Clean up in batch
-                elements.removeAll(deadElements)
-                if (particlePool.size < maxParticlePoolSize)
+                if (deadElements.isNotEmpty()) {
+                    val (deadSnowflakes, deadChains, deadReverse) = deadElements.typeCounts()
+                    withElements {
+                        activeSnowflakes = (activeSnowflakes - deadSnowflakes).coerceAtLeast(0)
+                        activeChainParticles = (activeChainParticles - deadChains).coerceAtLeast(0)
+                        activeReverseParticles = (activeReverseParticles - deadReverse).coerceAtLeast(0)
+                        removeAll(deadElements)
+                    }
+                }
+                if (particlePool.size < maxParticlePoolSize) {
                     particlePool.addAll(deadParticles)
+                }
 
                 // repaint only visible containers
                 for (c in containers.values)
@@ -301,10 +383,6 @@ object ZeusThunderbolt : ApplicationActivationListener {
                     updateSnow()
                 }
 
-                ApplicationManager.getApplication().invokeLater {
-                    containers.values.forEach { it.repaint() }
-                }
-                delay(16)
             }
         }
 
@@ -413,19 +491,17 @@ object ZeusThunderbolt : ApplicationActivationListener {
             while (snowSpawnAccumulator >= SNOW_SPAWN_RATE) {
                 snowSpawnAccumulator -= SNOW_SPAWN_RATE
 
-                // Count current snowflakes
-                val currentSnowflakes = elements.count { it is Snowflake }
-
-                if (currentSnowflakes < MAX_ACTIVE_SNOWFLAKES) {
+                if (activeSnowflakes < MAX_ACTIVE_SNOWFLAKES) {
                     // Spawn amount based on typing intensity
                     val spawnCount = (MIN_SNOW_SPAWN +
                             (MAX_SNOW_SPAWN - MIN_SNOW_SPAWN) * typingSpeed).toInt()
 
-                    repeat(spawnCount) {
+                    val snowflakes = List(spawnCount) {
                         val randomX = (-100..1100).random().toFloat()
                         val layer = (0 until SNOW_LAYERS).random()
-                        elements.add(generateSnowflake(0f, 0f, Point(randomX.toInt(), 0), layer))
+                        generateSnowflake(0f, 0f, Point(randomX.toInt(), 0), layer)
                     }
+                    addElements(snowflakes)
                 }
             }
         }
@@ -672,7 +748,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
             y += nearbyForce.y * dt
 
             // Find nearby snowflakes
-            for (other in elements) {
+            val snowStep = interactionStep(elements.size)
+            for (i in elements.indices step snowStep) {
+                val other = elements[i]
                 if (other is Snowflake && other != this && other.layer == layer) {
                     val dx = other.x - x
                     val dy = other.y - y
@@ -761,16 +839,21 @@ object ZeusThunderbolt : ApplicationActivationListener {
         }
     }
 
-    private fun generateReverseParticle(x0: Float, y0: Float, point: Point): ReverseParticle {
+    private fun generateReverseParticle(
+        x0: Float,
+        y0: Float,
+        point: Point,
+        particleCount: Int = 10,
+        lifetimeFrames: Int = 90
+    ): ReverseParticle {
         // Create a group of particles to simulate together
-        val particleGroup = List(10) {
+        val particleGroup = List(particleCount) {
             generateRegularParticle(x0, y0, point)
         }
         val snapshots = mutableListOf<ParticleSnapshot>()
 
         // Simulate particles together
-        val lifetime = 90
-        repeat(lifetime) { frame ->
+        repeat(lifetimeFrames) {
             // Update all particles together so they interact
             for (particle in particleGroup) particle.update(particleGroup)
 
@@ -876,7 +959,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
             force.y *= 0.95f
 
             // Chain behavior
-            for (other in elements)
+            val chainStep = interactionStep(elements.size)
+            for (i in elements.indices step chainStep) {
+                val other = elements[i]
                 if (other != this && other.chainStrength > 0) {
                     val dx = other.x - x
                     val dy = other.y - y
@@ -887,6 +972,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
                         force.y += dy * strength * dt
                     }
                 }
+            }
 
             lifetime -= dt
             if (lifetime <= 0) isDead = true
@@ -902,7 +988,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
             // Draw connections to nearby particles
             g2d.stroke = BasicStroke(size / 3f)
 
-            for (other in elements) {
+            for (other in renderElementsSnapshot) {
                 val dx = other.x - x
                 val dy = other.y - y
                 if (other != this && other.chainStrength > 0 &&
@@ -1057,7 +1143,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
             force.y *= randomFriction
 
             // Interact with nearby particles
-            for (other in elements) {
+            val particleStep = interactionStep(elements.size)
+            for (i in elements.indices step particleStep) {
+                val other = elements[i]
                 if (other != this) {
                     val dx = other.x - x
                     val dy = other.y - y
