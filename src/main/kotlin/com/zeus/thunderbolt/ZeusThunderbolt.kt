@@ -126,8 +126,22 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private fun snapshotElements(): List<PhysicsElement> =
         synchronized(elementsLock) { elements.toList() }
 
-    private inline fun <reified T : PhysicsElement> Collection<PhysicsElement>.countType() =
-        count { it is T }
+    private data class ElementTypeCounts(val snowflakes: Int = 0, val chains: Int = 0, val reverse: Int = 0)
+
+    private fun Collection<PhysicsElement>.typeCounts(): ElementTypeCounts {
+        var snowflakes = 0
+        var chains = 0
+        var reverse = 0
+        for (element in this) {
+            when (element) {
+                is Snowflake -> snowflakes++
+                is ChainParticle -> chains++
+                is ReverseParticle -> reverse++
+                else -> Unit
+            }
+        }
+        return ElementTypeCounts(snowflakes, chains, reverse)
+    }
 
     private fun interactionStep(size: Int): Int =
         (size / MAX_INTERACTION_NEIGHBORS).coerceAtLeast(1)
@@ -136,25 +150,36 @@ object ZeusThunderbolt : ApplicationActivationListener {
         val overflow = elements.size - maxParticles
         if (overflow <= 0) return
 
-        val toRemove = elements.subList(0, overflow).toList()
-        activeSnowflakes = (activeSnowflakes - toRemove.countType<Snowflake>()).coerceAtLeast(0)
-        activeChainParticles = (activeChainParticles - toRemove.countType<ChainParticle>()).coerceAtLeast(0)
-        activeReverseParticles = (activeReverseParticles - toRemove.countType<ReverseParticle>()).coerceAtLeast(0)
-        elements.subList(0, overflow).clear()
+        val removed = elements.subList(0, overflow)
+        val (removedSnowflakes, removedChains, removedReverse) = removed.typeCounts()
+        activeSnowflakes = (activeSnowflakes - removedSnowflakes).coerceAtLeast(0)
+        activeChainParticles = (activeChainParticles - removedChains).coerceAtLeast(0)
+        activeReverseParticles = (activeReverseParticles - removedReverse).coerceAtLeast(0)
+        removed.clear()
     }
 
     private fun addElements(newElements: Collection<PhysicsElement>) {
         if (newElements.isEmpty()) return
+        val (addedSnowflakes, addedChains, addedReverse) = newElements.typeCounts()
         withElements {
-            activeSnowflakes += newElements.countType<Snowflake>()
-            activeChainParticles += newElements.countType<ChainParticle>()
-            activeReverseParticles += newElements.countType<ReverseParticle>()
+            activeSnowflakes += addedSnowflakes
+            activeChainParticles += addedChains
+            activeReverseParticles += addedReverse
             addAll(newElements)
             trimParticlesLocked()
         }
     }
 
-    private fun addElement(element: PhysicsElement) = addElements(listOf(element))
+    private fun addElement(element: PhysicsElement) = withElements {
+        when (element) {
+            is Snowflake -> activeSnowflakes++
+            is ChainParticle -> activeChainParticles++
+            is ReverseParticle -> activeReverseParticles++
+            else -> Unit
+        }
+        add(element)
+        trimParticlesLocked()
+    }
     private inline fun addElement(factory: () -> PhysicsElement) = addElement(factory())
 
     override fun applicationActivated(ideFrame: IdeFrame) {
@@ -328,9 +353,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
                 // Clean up in batch
                 if (deadElements.isNotEmpty()) {
-                    val deadSnowflakes = deadElements.countType<Snowflake>()
-                    val deadChains = deadElements.countType<ChainParticle>()
-                    val deadReverse = deadElements.countType<ReverseParticle>()
+                    val (deadSnowflakes, deadChains, deadReverse) = deadElements.typeCounts()
                     withElements {
                         activeSnowflakes = (activeSnowflakes - deadSnowflakes).coerceAtLeast(0)
                         activeChainParticles = (activeChainParticles - deadChains).coerceAtLeast(0)
@@ -473,11 +496,12 @@ object ZeusThunderbolt : ApplicationActivationListener {
                     val spawnCount = (MIN_SNOW_SPAWN +
                             (MAX_SNOW_SPAWN - MIN_SNOW_SPAWN) * typingSpeed).toInt()
 
-                    repeat(spawnCount) {
+                    val snowflakes = List(spawnCount) {
                         val randomX = (-100..1100).random().toFloat()
                         val layer = (0 until SNOW_LAYERS).random()
-                        addElement { generateSnowflake(0f, 0f, Point(randomX.toInt(), 0), layer) }
+                        generateSnowflake(0f, 0f, Point(randomX.toInt(), 0), layer)
                     }
+                    addElements(snowflakes)
                 }
             }
         }
