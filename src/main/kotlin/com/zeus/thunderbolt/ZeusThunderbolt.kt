@@ -1,5 +1,6 @@
 package com.zeus.thunderbolt
 
+import com.intellij.ide.PowerSaveMode
 import com.intellij.openapi.application.ApplicationActivationListener
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.PersistentStateComponent
@@ -63,6 +64,8 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private val random = Random()
     private val themes = Theme.entries.toTypedArray()
     private var currentTheme = Theme.None
+    @Volatile
+    private var effectsSuspendedByPowerSave = false
 
     private const val SNOW_FADE_OUT_TIME = 5f  // Time in seconds after typing stops
     private const val SNOW_SPAWN_RATE = 0.1f   // Time between snowflake spawns
@@ -182,6 +185,20 @@ object ZeusThunderbolt : ApplicationActivationListener {
     }
     private inline fun addElement(factory: () -> PhysicsElement) = addElement(factory())
 
+    private fun shouldSuspendEffects(): Boolean = PowerSaveMode.isEnabled()
+
+    private fun clearEffectsState() {
+        withElements {
+            clear()
+            activeSnowflakes = 0
+            activeChainParticles = 0
+            activeReverseParticles = 0
+        }
+        renderElementsSnapshot = emptyList()
+        isSnowing = false
+        typeCount = 0
+    }
+
     override fun applicationActivated(ideFrame: IdeFrame) {
         ZeusThunderbolt
     }
@@ -223,6 +240,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
         // Add document listener to track deletions
         val documentListener = object : DocumentListener {
             override fun beforeDocumentChange(event: DocumentEvent) {
+                if (shouldSuspendEffects()) return
                 if (event.oldLength > 0 && event.newLength == 0 && reverseParticlesEnabled) {
                     val now = System.nanoTime()
                     if (now - lastReverseSpawnNs < REVERSE_PARTICLE_COOLDOWN_NS) return
@@ -252,6 +270,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
         }
 
         val trackCarets = lambda@{ event: CaretEvent ->
+            if (shouldSuspendEffects()) return@lambda
             val editor = event.editor
             currEditorObj.set(System.identityHashCode(editor))
             val caret = event.caret ?: return@lambda
@@ -332,6 +351,21 @@ object ZeusThunderbolt : ApplicationActivationListener {
         val containers = mutableMapOf<Editor, ElementsContainer>()
         val renderJob = coroutineScope.launch {
             while (isActive) {
+                if (shouldSuspendEffects()) {
+                    if (!effectsSuspendedByPowerSave) {
+                        clearEffectsState()
+                        effectsSuspendedByPowerSave = true
+                    }
+                    for (c in containers.values) {
+                        if (c.isShowing && c.isVisible) c.repaint()
+                    }
+                    delay(250)
+                    continue
+                } else if (effectsSuspendedByPowerSave) {
+                    effectsSuspendedByPowerSave = false
+                    lastFrameTime = System.nanoTime()
+                }
+
                 val currentTime = System.nanoTime()
                 dt = ((currentTime - lastFrameTime) / 1_000_000_000f).coerceAtMost(0.032f)
                 lastFrameTime = currentTime
@@ -425,6 +459,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
             TypedActionHandler { editor, charTyped, dataContext ->
                 try {
                     defaultHandler.execute(editor, charTyped, dataContext)
+                    if (shouldSuspendEffects()) return@TypedActionHandler
 
                     if (snowEnabled) {
                         // Update typing stats
