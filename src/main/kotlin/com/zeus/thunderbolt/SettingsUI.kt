@@ -32,6 +32,8 @@ class SettingsUI : Configurable {
             component.reverseParticlesIntensity != ZeusThunderbolt.getReverseParticlesIntensity() ||
             component.butterflyParticlesEnabled != ZeusThunderbolt.isButterfliesEnabled() ||
             component.butterflyParticlesIntensity != ZeusThunderbolt.getButterflyParticlesIntensity() ||
+            component.grassEnabled != ZeusThunderbolt.isGrassEnabled() ||
+            component.grassIntensity != ZeusThunderbolt.getGrassIntensity() ||
             component.snowIntensity != ZeusThunderbolt.getSnowIntensity()
         } ?: false
 
@@ -47,6 +49,8 @@ class SettingsUI : Configurable {
             ZeusThunderbolt.setReverseParticlesIntensity(component.reverseParticlesIntensity)
             ZeusThunderbolt.setButterfliesEnabled(component.butterflyParticlesEnabled)
             ZeusThunderbolt.setButterflyParticlesIntensity(component.butterflyParticlesIntensity)
+            ZeusThunderbolt.setGrassEnabled(component.grassEnabled)
+            ZeusThunderbolt.setGrassIntensity(component.grassIntensity)
             ZeusThunderbolt.setSnowIntensity(component.snowIntensity)
         }
     }
@@ -63,6 +67,8 @@ class SettingsUI : Configurable {
             component.reverseParticlesIntensity = ZeusThunderbolt.getReverseParticlesIntensity()
             component.butterflyParticlesEnabled = ZeusThunderbolt.isButterfliesEnabled()
             component.butterflyParticlesIntensity = ZeusThunderbolt.getButterflyParticlesIntensity()
+            component.grassEnabled = ZeusThunderbolt.isGrassEnabled()
+            component.grassIntensity = ZeusThunderbolt.getGrassIntensity()
             component.snowIntensity = ZeusThunderbolt.getSnowIntensity()
         }
     }
@@ -83,6 +89,8 @@ class ThunderSettingsComponent {
     private val reverseParticlesIntensitySlider = createIntensitySlider(ZeusThunderbolt.getReverseParticlesIntensity())
     private val butterflyParticlesCheckbox = JBCheckBox("Enable Butterfly Particles", ZeusThunderbolt.isButterfliesEnabled())
     private val butterflyParticlesIntensitySlider = createIntensitySlider(ZeusThunderbolt.getButterflyParticlesIntensity())
+    private val grassCheckbox = JBCheckBox("Enable Caret Grass", ZeusThunderbolt.isGrassEnabled())
+    private val grassIntensitySlider = createIntensitySlider(ZeusThunderbolt.getGrassIntensity())
     private val snowIntensitySlider = createIntensitySlider(ZeusThunderbolt.getSnowIntensity())
     val panel: JPanel
 
@@ -95,6 +103,7 @@ class ThunderSettingsComponent {
             .addComponent(createEffectRow(snowCheckbox, snowIntensitySlider))
             .addComponent(createEffectRow(reverseParticlesCheckbox, reverseParticlesIntensitySlider))
             .addComponent(createEffectRow(butterflyParticlesCheckbox, butterflyParticlesIntensitySlider))
+            .addComponent(createEffectRow(grassCheckbox, grassIntensitySlider))
             .addComponentFillVertically(JPanel(), 0)
             .panel
     }
@@ -169,6 +178,18 @@ class ThunderSettingsComponent {
         get() = butterflyParticlesIntensitySlider.value
         set(value) {
             butterflyParticlesIntensitySlider.value = value
+        }
+
+    var grassEnabled: Boolean
+        get() = grassCheckbox.isSelected
+        set(value) {
+            grassCheckbox.isSelected = value
+        }
+
+    var grassIntensity: Int
+        get() = grassIntensitySlider.value
+        set(value) {
+            grassIntensitySlider.value = value
         }
 
     var snowIntensity: Int

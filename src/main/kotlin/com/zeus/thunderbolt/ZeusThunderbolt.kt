@@ -32,6 +32,7 @@ import kotlinx.coroutines.*
 import java.awt.geom.Ellipse2D
 import java.awt.geom.Path2D
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 object ZeusThunderbolt : ApplicationActivationListener {
 
@@ -43,6 +44,11 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private const val MAX_INTERACTION_NEIGHBORS = 120
     private const val MAX_ACTIVE_REVERSE_PARTICLES = 8
     private const val REVERSE_PARTICLE_COOLDOWN_NS = 120_000_000L
+    private const val MAX_GRASS_PATCHES = 180
+    private const val MAX_ACTIVE_LAWN_MOWERS = 2
+    private const val MIN_GRASS_PLANT_DISTANCE = 4f
+    private const val MOWER_SPAWN_COOLDOWN_NS = 800_000_000L
+    private const val GRASS_TRIMMED_HEIGHT = 0.24f
     private const val WIND_CHANGE_INTERVAL = 2f  // Wind changes direction every 2 seconds
     private const val MAX_WIND_FORCE = 100f
     private var currentWindForce = 0f
@@ -59,7 +65,10 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private var activeSnowflakes = 0
     private var activeChainParticles = 0
     private var activeReverseParticles = 0
+    private var activeGrassPatches = 0
+    private var activeLawnMowers = 0
     private var lastReverseSpawnNs = 0L
+    private var lastMowerSpawnNs = 0L
     private val settings: ThunderSettings get() = ThunderSettings.getInstance()
     private val random = Random()
     private val themes = Theme.entries.toTypedArray()
@@ -168,6 +177,22 @@ object ZeusThunderbolt : ApplicationActivationListener {
         settings.butterflyParticlesIntensity = butterflyParticlesIntensity
         refreshTypingEffectWeights()
     }
+
+    const val DEFAULT_GRASS_ENABLED = false
+    const val DEFAULT_GRASS_INTENSITY = 100
+    private var grassEnabled = DEFAULT_GRASS_ENABLED
+    private var grassIntensity = DEFAULT_GRASS_INTENSITY
+
+    fun isGrassEnabled() = grassEnabled
+    fun setGrassEnabled(enabled: Boolean) {
+        grassEnabled = enabled
+        settings.grassEnabled = enabled
+    }
+    fun getGrassIntensity() = grassIntensity
+    fun setGrassIntensity(intensity: Int) {
+        grassIntensity = intensity.coerceIn(0, 100)
+        settings.grassIntensity = grassIntensity
+    }
     fun getSnowIntensity() = snowIntensity
     fun setSnowIntensity(intensity: Int) {
         snowIntensity = intensity.coerceIn(0, 100)
@@ -190,21 +215,39 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private fun snapshotElements(): List<PhysicsElement> =
         synchronized(elementsLock) { elements.toList() }
 
-    private data class ElementTypeCounts(val snowflakes: Int = 0, val chains: Int = 0, val reverse: Int = 0)
+    private data class ElementTypeCounts(
+        val snowflakes: Int = 0,
+        val chains: Int = 0,
+        val reverse: Int = 0,
+        val grassPatches: Int = 0,
+        val lawnMowers: Int = 0
+    )
+
+    private data class WorldPoint(val x: Float, val y: Float) {
+        fun distanceTo(other: WorldPoint): Float =
+            Point2D.distance(x.toDouble(), y.toDouble(), other.x.toDouble(), other.y.toDouble()).toFloat()
+
+        fun toScreenPoint(scrollOffsetX: Float, scrollOffsetY: Float): Point =
+            Point((x - scrollOffsetX).roundToInt(), (y - scrollOffsetY).roundToInt())
+    }
 
     private fun Collection<PhysicsElement>.typeCounts(): ElementTypeCounts {
         var snowflakes = 0
         var chains = 0
         var reverse = 0
+        var grassPatches = 0
+        var lawnMowers = 0
         for (element in this) {
             when (element) {
                 is Snowflake -> snowflakes++
                 is ChainParticle -> chains++
                 is ReverseParticle -> reverse++
+                is GrassPatch -> grassPatches++
+                is LawnMower -> lawnMowers++
                 else -> Unit
             }
         }
-        return ElementTypeCounts(snowflakes, chains, reverse)
+        return ElementTypeCounts(snowflakes, chains, reverse, grassPatches, lawnMowers)
     }
 
     private fun interactionStep(size: Int): Int =
@@ -215,20 +258,24 @@ object ZeusThunderbolt : ApplicationActivationListener {
         if (overflow <= 0) return
 
         val removed = elements.subList(0, overflow)
-        val (removedSnowflakes, removedChains, removedReverse) = removed.typeCounts()
+        val (removedSnowflakes, removedChains, removedReverse, removedGrassPatches, removedLawnMowers) = removed.typeCounts()
         activeSnowflakes = (activeSnowflakes - removedSnowflakes).coerceAtLeast(0)
         activeChainParticles = (activeChainParticles - removedChains).coerceAtLeast(0)
         activeReverseParticles = (activeReverseParticles - removedReverse).coerceAtLeast(0)
+        activeGrassPatches = (activeGrassPatches - removedGrassPatches).coerceAtLeast(0)
+        activeLawnMowers = (activeLawnMowers - removedLawnMowers).coerceAtLeast(0)
         removed.clear()
     }
 
     private fun addElements(newElements: Collection<PhysicsElement>) {
         if (newElements.isEmpty()) return
-        val (addedSnowflakes, addedChains, addedReverse) = newElements.typeCounts()
+        val (addedSnowflakes, addedChains, addedReverse, addedGrassPatches, addedLawnMowers) = newElements.typeCounts()
         withElements {
             activeSnowflakes += addedSnowflakes
             activeChainParticles += addedChains
             activeReverseParticles += addedReverse
+            activeGrassPatches += addedGrassPatches
+            activeLawnMowers += addedLawnMowers
             addAll(newElements)
             trimParticlesLocked()
         }
@@ -239,6 +286,8 @@ object ZeusThunderbolt : ApplicationActivationListener {
             is Snowflake -> activeSnowflakes++
             is ChainParticle -> activeChainParticles++
             is ReverseParticle -> activeReverseParticles++
+            is GrassPatch -> activeGrassPatches++
+            is LawnMower -> activeLawnMowers++
             else -> Unit
         }
         add(element)
@@ -254,10 +303,13 @@ object ZeusThunderbolt : ApplicationActivationListener {
             activeSnowflakes = 0
             activeChainParticles = 0
             activeReverseParticles = 0
+            activeGrassPatches = 0
+            activeLawnMowers = 0
         }
         renderElementsSnapshot = emptyList()
         isSnowing = false
         typeCount = 0
+        lastMowerSpawnNs = 0L
     }
 
     override fun applicationActivated(ideFrame: IdeFrame) {
@@ -299,9 +351,11 @@ object ZeusThunderbolt : ApplicationActivationListener {
         setSnowIntensity(settings.snowIntensity)
         setButterfliesEnabled(settings.butterflyParticlesEnabled)
         setButterflyParticlesIntensity(settings.butterflyParticlesIntensity)
+        setGrassEnabled(settings.grassEnabled)
+        setGrassIntensity(settings.grassIntensity)
         val editorFactory = EditorFactory.getInstance()
         val editors = mutableListOf<Editor>()
-        val lastPositions = mutableMapOf<Caret, Point>()
+        val lastPositions = mutableMapOf<Caret, WorldPoint>()
         val currEditorObj = AtomicInteger(0)
 
         // Add document listener to track deletions
@@ -357,20 +411,34 @@ object ZeusThunderbolt : ApplicationActivationListener {
             val scrollOffsetX = editor.scrollingModel.horizontalScrollOffset.toFloat()
             val scrollOffsetY = editor.scrollingModel.verticalScrollOffset.toFloat()
             val newPos = caret.getPoint()
+            val newWorldPos = newPos.toWorldPoint(scrollOffsetX, scrollOffsetY)
             val lastPos = lastPositions[caret]
-            val distance = lastPos?.distance(newPos)
+            val distance = lastPos?.distanceTo(newWorldPos)
             if (distance == null || distance > 1) {
-                addElements(generateParticles(x0 = scrollOffsetX, y0 = scrollOffsetY, newPos, particlesPerCaret))
+                addElements(
+                    generateParticles(
+                        x0 = scrollOffsetX,
+                        y0 = scrollOffsetY,
+                        point = newWorldPos.toScreenPoint(scrollOffsetX, scrollOffsetY),
+                        count = particlesPerCaret
+                    )
+                )
+            }
+            if (grassEnabled && lastPos != null && distance != null && distance > MIN_GRASS_PLANT_DISTANCE) {
+                tryPlantGrassAt(lastPos, distance)
             }
             // Create chain particles for big jumps
             if (distance != null && distance > 50 && activeChainParticles < maxChainParticles && caretCount <= 5) {
-                addElements(generateChainParticles(
-                    x0 = scrollOffsetX,
-                    y0 = scrollOffsetY,
-                    lastPos, newPos
-                ))
+                addElements(
+                    generateChainParticles(
+                        x0 = scrollOffsetX,
+                        y0 = scrollOffsetY,
+                        start = lastPos.toScreenPoint(scrollOffsetX, scrollOffsetY),
+                        end = newWorldPos.toScreenPoint(scrollOffsetX, scrollOffsetY)
+                    )
+                )
             }
-            lastPositions[caret] = caret.getPoint()
+            lastPositions[caret] = newWorldPos
         }
         val caretListener = object : CaretListener {
 
@@ -387,6 +455,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
             override fun caretRemoved(event: CaretEvent) {
                 super.caretRemoved(event)
                 trackCarets(event)
+                event.caret?.let { lastPositions.remove(it) }
             }
         }
         val app = ApplicationManager.getApplication()
@@ -465,11 +534,13 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
                 // Clean up in batch
                 if (deadElements.isNotEmpty()) {
-                    val (deadSnowflakes, deadChains, deadReverse) = deadElements.typeCounts()
+                    val (deadSnowflakes, deadChains, deadReverse, deadGrassPatches, deadLawnMowers) = deadElements.typeCounts()
                     withElements {
                         activeSnowflakes = (activeSnowflakes - deadSnowflakes).coerceAtLeast(0)
                         activeChainParticles = (activeChainParticles - deadChains).coerceAtLeast(0)
                         activeReverseParticles = (activeReverseParticles - deadReverse).coerceAtLeast(0)
+                        activeGrassPatches = (activeGrassPatches - deadGrassPatches).coerceAtLeast(0)
+                        activeLawnMowers = (activeLawnMowers - deadLawnMowers).coerceAtLeast(0)
                         removeAll(deadElements)
                     }
                 }
@@ -563,6 +634,9 @@ object ZeusThunderbolt : ApplicationActivationListener {
             translate(-location.x, -location.y)
         }
 
+    private fun Point.toWorldPoint(scrollOffsetX: Float, scrollOffsetY: Float) =
+        WorldPoint(x + scrollOffsetX, y + scrollOffsetY)
+
     private fun Editor.getPoint(event: DocumentEvent): Point =
         visualPositionToXY(offsetToVisualPosition(event.offset)).apply {
             val location = scrollingModel.visibleArea.location
@@ -621,6 +695,103 @@ object ZeusThunderbolt : ApplicationActivationListener {
                 }
             }
         }
+    }
+
+    private fun PhysicsElement.worldX(): Float = x0 + x
+
+    private fun PhysicsElement.worldY(): Float = y0 + y
+
+    private fun tryPlantGrassAt(worldPoint: WorldPoint, travelDistance: Float) {
+        val intensityFactor = grassIntensity / 100f
+        if (!grassEnabled || intensityFactor <= 0f) return
+
+        val spawnChance = (0.2f + intensityFactor * 0.55f + (travelDistance / 180f)).coerceIn(0f, 1f)
+        if (random.nextFloat() > spawnChance) return
+
+        val bladeCount = (4 + (intensityFactor * 4f).roundToInt() + random.nextInt(3)).coerceAtLeast(4)
+        val maxPatches = (30 + intensityFactor * (MAX_GRASS_PATCHES - 30)).roundToInt()
+            .coerceIn(20, MAX_GRASS_PATCHES)
+        val minSpacing = (18f - intensityFactor * 8f).coerceIn(9f, 18f)
+        val minSpacingSq = minSpacing * minSpacing
+        val paletteOptions = arrayOf(
+            Pair(Color(52, 140, 62), Color(123, 222, 101)),
+            Pair(Color(68, 153, 74), Color(148, 232, 117)),
+            Pair(Color(44, 119, 47), Color(106, 205, 88)),
+            Pair(Color(79, 163, 56), Color(173, 235, 119))
+        )
+        val palette = paletteOptions[random.nextInt(paletteOptions.size)]
+        val patch = GrassPatch(
+            x0 = 0f,
+            y0 = 0f,
+            x = worldPoint.x,
+            y = worldPoint.y + 2f,
+            baseWidth = 10f + random.nextFloat() * 10f,
+            maxHeight = 12f + intensityFactor * 16f + random.nextFloat() * 8f,
+            bladeCount = bladeCount,
+            sproutDelay = 0.3f + (1f - intensityFactor) * 0.7f + random.nextFloat() * 0.9f,
+            growthSpeed = 0.16f + intensityFactor * 0.4f + random.nextFloat() * 0.12f,
+            lifetime = 18f + random.nextFloat() * 10f,
+            bodyColor = palette.first,
+            tipColor = palette.second
+        )
+
+        withElements {
+            val hasNearbyGrass = any { element ->
+                if (element !is GrassPatch || element.isDead) return@any false
+                val dx = element.worldX() - worldPoint.x
+                val dy = element.worldY() - worldPoint.y
+                dx * dx + dy * dy < minSpacingSq
+            }
+            if (hasNearbyGrass) return
+
+            while (activeGrassPatches >= maxPatches) {
+                val removalIndex = indexOfFirst { it is GrassPatch && it.mowerCooldown > 0f }
+                    .takeIf { it >= 0 }
+                    ?: indexOfFirst { it is GrassPatch }
+                if (removalIndex < 0) return
+                removeAt(removalIndex)
+                activeGrassPatches = (activeGrassPatches - 1).coerceAtLeast(0)
+            }
+
+            activeGrassPatches++
+            add(patch)
+            trimParticlesLocked()
+        }
+    }
+
+    private fun requestLawnMower(patch: GrassPatch, elements: List<PhysicsElement>): Boolean {
+        if (!grassEnabled || activeLawnMowers >= MAX_ACTIVE_LAWN_MOWERS) return false
+
+        val patchWorldX = patch.worldX()
+        val patchWorldY = patch.worldY()
+        val hasNearbyMower = elements.any { element ->
+            if (element !is LawnMower || element.isDead) return@any false
+            abs(element.worldY() - patchWorldY) < 26f && abs(element.worldX() - patchWorldX) < 220f
+        }
+        if (hasNearbyMower) return false
+
+        val now = System.nanoTime()
+        if (now - lastMowerSpawnNs < MOWER_SPAWN_COOLDOWN_NS) return false
+
+        val direction = if (random.nextBoolean()) 1f else -1f
+        val approachDistance = 120f + random.nextFloat() * 80f
+        val travelDistance = 180f + random.nextFloat() * 120f
+        lastMowerSpawnNs = now
+        addElement(
+            LawnMower(
+                x0 = 0f,
+                y0 = 0f,
+                x = patchWorldX - direction * approachDistance,
+                y = patchWorldY + 4f,
+                laneY = patchWorldY + 4f,
+                targetX = patchWorldX,
+                exitX = patchWorldX + direction * travelDistance,
+                direction = direction,
+                speed = 130f + (grassIntensity / 100f) * 90f + random.nextFloat() * 30f,
+                cutRadius = 44f + patch.baseWidth * 1.4f
+            )
+        )
+        return true
     }
 
     sealed interface PhysicsElement {
@@ -1654,7 +1825,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
             createWingPath(leftWing, -1)
             g2d.paint = createWingGradient(alpha)
             g2d.fill(leftWing)
-            drawWingPatterns(g2d, leftWing, alpha)
+            drawWingPatterns(g2d, alpha)
 
             // Draw right wing
             val rightWing = Path2D.Float()
@@ -1664,7 +1835,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
             createWingPath(rightWing, 1)
             g2d.paint = createWingGradient(alpha)
             g2d.fill(rightWing)
-            drawWingPatterns(g2d, rightWing, alpha)
+            drawWingPatterns(g2d, alpha)
 
             // Reset transform and draw body
             g2d.transform = originalTransform
@@ -1706,7 +1877,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
             )
         }
 
-        private fun drawWingPatterns(g2d: Graphics2D, wing: Path2D.Float, alpha: Int) {
+        private fun drawWingPatterns(g2d: Graphics2D, alpha: Int) {
             // Draw spots and patterns
             g2d.color = Color(
                 (spotColor.red * 0.7f).toInt(),
@@ -1787,6 +1958,220 @@ object ZeusThunderbolt : ApplicationActivationListener {
         }
     }
 
+    data class GrassPatch(
+        override var x0: Float,
+        override var y0: Float,
+        override var x: Float,
+        override var y: Float,
+        var baseWidth: Float,
+        var maxHeight: Float,
+        var bladeCount: Int,
+        var sproutDelay: Float,
+        var growthSpeed: Float,
+        var lifetime: Float,
+        var bodyColor: Color,
+        var tipColor: Color,
+        override var chainStrength: Float = 0f,
+        var growth: Float = 0f,
+        var swayPhase: Float = random.nextFloat() * Math.PI.toFloat() * 2f,
+        var swaySpeed: Float = 0.8f + random.nextFloat() * 1.1f,
+        var swayAmplitude: Float = 1.5f + random.nextFloat() * 2.5f,
+        var mowerCooldown: Float = 0f,
+        var clippingsBurst: Float = 0f,
+        var mowerRequested: Boolean = false
+    ) : PhysicsElement {
+        override var isDead: Boolean = false
+        private val initialLifetime = lifetime
+
+        override fun update(elements: List<PhysicsElement>) {
+            lifetime -= dt
+            if (lifetime <= 0f) {
+                isDead = true
+                return
+            }
+
+            swayPhase += dt * swaySpeed
+            mowerCooldown = (mowerCooldown - dt).coerceAtLeast(0f)
+            clippingsBurst = (clippingsBurst - dt * 2.4f).coerceAtLeast(0f)
+
+            if (sproutDelay > 0f) {
+                sproutDelay = (sproutDelay - dt).coerceAtLeast(0f)
+                return
+            }
+
+            growth = (growth + growthSpeed * dt).coerceAtMost(1f)
+
+            if (!mowerRequested && mowerCooldown <= 0f && growth >= 0.94f) {
+                mowerRequested = requestLawnMower(this, elements)
+            }
+        }
+
+        fun trim() {
+            if (growth <= GRASS_TRIMMED_HEIGHT + 0.05f) return
+            growth = GRASS_TRIMMED_HEIGHT + random.nextFloat() * 0.08f
+            mowerCooldown = 4f + random.nextFloat() * 2.5f
+            clippingsBurst = 1f
+            mowerRequested = false
+        }
+
+        override fun render(g: Graphics) {
+            val g2d = g.create() as? Graphics2D ?: return
+            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+
+            val transform = g2d.transform
+            g2d.translate(x.toDouble(), y.toDouble())
+
+            if (sproutDelay > 0f) {
+                val seedAlpha = ((1f - sproutDelay.coerceIn(0f, 1f)) * 170).toInt().coerceIn(0, 170)
+                g2d.color = Color(123, 92, 56, seedAlpha)
+                g2d.fillOval(-2, -1, 4, 3)
+                g2d.dispose()
+                return
+            }
+
+            val lifeAlpha = (lifetime / initialLifetime).coerceIn(0.2f, 1f)
+            val currentHeight = maxHeight * (0.18f + growth * 0.82f)
+            val windLean = (currentWindForce / MAX_WIND_FORCE) * 4.5f
+            val blades = bladeCount.coerceAtLeast(2)
+
+            for (index in 0 until blades) {
+                val progress = if (blades == 1) 0.5f else index.toFloat() / (blades - 1)
+                val baseX = (progress - 0.5f) * baseWidth
+                val bladeHeight = currentHeight * (0.72f + 0.34f * sin(swayPhase + index))
+                val lean = windLean + sin(swayPhase * 1.4f + index * 0.8f) * swayAmplitude
+                val strokeWidth = (1.2f + growth * 0.9f - progress * 0.2f).coerceAtLeast(0.8f)
+                val bladeColor = if (progress > 0.65f) tipColor else bodyColor
+                val alpha = (255 * lifeAlpha).toInt().coerceIn(0, 255)
+                g2d.color = Color(bladeColor.red, bladeColor.green, bladeColor.blue, alpha)
+                g2d.stroke = BasicStroke(strokeWidth, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+                val blade = Path2D.Float().apply {
+                    moveTo(baseX, 0f)
+                    quadTo(baseX + lean * 0.45f, -bladeHeight * 0.55f, baseX + lean, -bladeHeight)
+                }
+                g2d.draw(blade)
+            }
+
+            if (clippingsBurst > 0f) {
+                val clippingAlpha = (140 * clippingsBurst).toInt().coerceIn(0, 140)
+                g2d.color = Color(174, 224, 102, clippingAlpha)
+                repeat(5) { index ->
+                    val clippingX = -baseWidth / 2 + index * (baseWidth / 4f) + sin(swayPhase + index) * 6f
+                    val clippingY = -2f - clippingsBurst * 8f - index
+                    g2d.fillOval(clippingX.roundToInt(), clippingY.roundToInt(), 3, 2)
+                }
+            }
+
+            g2d.color = Color(63, 114, 48, (110 * lifeAlpha).toInt().coerceIn(0, 110))
+            g2d.fillOval((-baseWidth / 2).roundToInt(), -2, baseWidth.roundToInt().coerceAtLeast(6), 4)
+            g2d.transform = transform
+            g2d.dispose()
+        }
+
+        override fun reset() {
+            isDead = false
+            growth = 0f
+            mowerCooldown = 0f
+            clippingsBurst = 0f
+            mowerRequested = false
+        }
+    }
+
+    data class LawnMower(
+        override var x0: Float,
+        override var y0: Float,
+        override var x: Float,
+        override var y: Float,
+        var laneY: Float,
+        var targetX: Float,
+        var exitX: Float,
+        var direction: Float,
+        var speed: Float,
+        var cutRadius: Float,
+        override var chainStrength: Float = 0f,
+        var bladePhase: Float = random.nextFloat() * Math.PI.toFloat() * 2f,
+        var bouncePhase: Float = random.nextFloat() * Math.PI.toFloat() * 2f
+    ) : PhysicsElement {
+        override var isDead: Boolean = false
+
+        override fun update(elements: List<PhysicsElement>) {
+            bladePhase += dt * 16f
+            bouncePhase += dt * 10f
+            x += direction * speed * dt
+            y = laneY + sin(bouncePhase) * 1.5f
+
+            for (element in elements) {
+                if (element !is GrassPatch || element.isDead) continue
+                val dx = abs(element.worldX() - worldX())
+                val dy = abs(element.worldY() - laneY)
+                if (dx <= cutRadius && dy <= 22f) {
+                    element.trim()
+                }
+            }
+
+            val hasReachedTarget = if (direction > 0f) x >= exitX else x <= exitX
+            if (hasReachedTarget) {
+                isDead = true
+            }
+        }
+
+        override fun render(g: Graphics) {
+            val g2d = g.create() as? Graphics2D ?: return
+            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+
+            val transform = g2d.transform
+            g2d.translate(x.toDouble(), y.toDouble())
+            if (direction < 0f) {
+                g2d.scale(-1.0, 1.0)
+            }
+
+            val deckWidth = 30
+            val deckHeight = 14
+            val bladeGlow = (0.4f + 0.6f * abs(sin(bladePhase))).coerceIn(0f, 1f)
+
+            g2d.color = Color(150, 211, 101, 70)
+            g2d.fillRoundRect(-18, 4, cutRadius.roundToInt().coerceAtLeast(24), 7, 7, 7)
+
+            g2d.color = Color(36, 36, 38)
+            g2d.fillOval(-8, 7, 10, 10)
+            g2d.fillOval(12, 7, 10, 10)
+
+            g2d.color = Color(206, 52, 52)
+            g2d.fillRoundRect(-10, -2, deckWidth, deckHeight, 8, 8)
+            g2d.color = Color(255, 200, 92)
+            g2d.fillRoundRect(12, 1, 8, 5, 4, 4)
+
+            g2d.color = Color(255, 255, 255, (160 * bladeGlow).toInt().coerceIn(0, 160))
+            g2d.stroke = BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+            g2d.drawLine(0, 6, 12, 6)
+            g2d.drawLine(6, 1, 6, 11)
+
+            g2d.color = Color(66, 66, 70)
+            g2d.stroke = BasicStroke(3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+            val handle = Path2D.Float().apply {
+                moveTo(-4f, 0f)
+                lineTo(-10f, -10f)
+                lineTo(-4f, -16f)
+            }
+            g2d.draw(handle)
+
+            if (abs(x - targetX) < cutRadius * 1.2f) {
+                g2d.color = Color(174, 224, 102, 110)
+                repeat(4) { index ->
+                    val clipX = -8 + index * 5
+                    val clipY = (-8 - abs(sin(bladePhase + index)) * 6f).roundToInt()
+                    g2d.fillOval(clipX, clipY, 3, 2)
+                }
+            }
+
+            g2d.transform = transform
+            g2d.dispose()
+        }
+
+        override fun reset() {
+            isDead = false
+        }
+    }
+
     // Add force field effect
     fun applyForceField(particle: Particle) {
         val fieldStrength = 50f
@@ -1822,6 +2207,8 @@ class ThunderSettings : PersistentStateComponent<ThunderSettings> {
     var reverseParticlesIntensity: Int = ZeusThunderbolt.DEFAULT_REVERSE_PARTICLES_INTENSITY
     var butterflyParticlesEnabled: Boolean = ZeusThunderbolt.DEFAULT_BUTTERFLY_PARTICLES_ENABLED
     var butterflyParticlesIntensity: Int = ZeusThunderbolt.DEFAULT_BUTTERFLY_PARTICLES_INTENSITY
+    var grassEnabled: Boolean = ZeusThunderbolt.DEFAULT_GRASS_ENABLED
+    var grassIntensity: Int = ZeusThunderbolt.DEFAULT_GRASS_INTENSITY
 
     override fun getState(): ThunderSettings = this
 
