@@ -11,6 +11,7 @@ qodana = "2025.3.2"
 
 [libraries]
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+kotlinStdlib = { group = "org.jetbrains.kotlin", name = "kotlin-stdlib", version.ref = "kotlin" }
 
 [plugins]
 changelog = { id = "org.jetbrains.changelog", version.ref = "changelog" }
