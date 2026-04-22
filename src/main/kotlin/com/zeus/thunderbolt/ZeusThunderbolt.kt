@@ -22,7 +22,6 @@ import java.awt.geom.Point2D
 import java.awt.geom.CubicCurve2D
 import java.util.*
 import java.util.concurrent.atomic.AtomicInteger
-import javax.swing.JComponent
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -30,6 +29,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import kotlinx.coroutines.*
 import java.awt.geom.Ellipse2D
 import java.awt.geom.Path2D
+import javax.swing.JComponent
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -766,11 +766,11 @@ class ZeusThunderbolt : ApplicationActivationListener {
                 val maxActiveSnowflakes = (MAX_ACTIVE_SNOWFLAKES * snowIntensityFactor).toInt().coerceAtLeast(0)
                 if (activeSnowflakes < maxActiveSnowflakes) {
                     // Spawn amount based on typing intensity
-                    val spawnCount = (MIN_SNOW_SPAWN +
+                    val spawnCount = ((MIN_SNOW_SPAWN +
                             (MAX_SNOW_SPAWN - MIN_SNOW_SPAWN) * typingSpeed).toInt()
-                        .coerceAtLeast(1) * snowIntensityFactor
+                        .coerceAtLeast(1) * snowIntensityFactor).toInt().coerceAtLeast(0)
 
-                    val snowflakes = List(spawnCount.toInt().coerceAtLeast(0)) {
+                    val snowflakes = List(spawnCount) {
                         val randomX = (-100..1100).random().toFloat()
                         val layer = (0 until SNOW_LAYERS).random()
                         generateSnowflake(0f, 0f, Point(randomX.toInt(), 0), layer)
@@ -1905,7 +1905,7 @@ class ZeusThunderbolt : ApplicationActivationListener {
             val leftWing = Path2D.Float()
             g2d.transform = originalTransform
             g2d.translate(x.toDouble(), y.toDouble())
-            g2d.rotate(leftWingAngle*1.0)
+            g2d.rotate(leftWingAngle.toDouble())
             createWingPath(leftWing, -1)
             g2d.paint = createWingGradient(alpha)
             g2d.fill(leftWing)
@@ -1915,7 +1915,7 @@ class ZeusThunderbolt : ApplicationActivationListener {
             val rightWing = Path2D.Float()
             g2d.transform = originalTransform
             g2d.translate(x.toDouble(), y.toDouble())
-            g2d.rotate(rightWingAngle*1.0)
+            g2d.rotate(rightWingAngle.toDouble())
             createWingPath(rightWing, 1)
             g2d.paint = createWingGradient(alpha)
             g2d.fill(rightWing)
