@@ -14,7 +14,6 @@ import com.intellij.openapi.editor.event.*
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.IdeFrame
 import com.intellij.util.xmlb.XmlSerializerUtil
-import com.zeus.thunderbolt.ZeusThunderbolt.getPoint
 import java.awt.*
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
@@ -34,7 +33,12 @@ import java.awt.geom.Path2D
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-object ZeusThunderbolt : ApplicationActivationListener {
+class ZeusThunderbolt : ApplicationActivationListener {
+    override fun applicationActivated(ideFrame: IdeFrame) {
+        ensurePluginInitialized()
+    }
+
+    companion object {
 
     private const val TARGET_FPS = 60
     private const val FRAME_TIME_NS = 1_000_000_000L / TARGET_FPS
@@ -70,6 +74,11 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private var lastReverseSpawnNs = 0L
     private var lastMowerSpawnNs = 0L
     private val settings: ThunderSettings get() = ThunderSettings.getInstance()
+    private val initializationLock = Any()
+    @Volatile
+    private var settingsLoaded = false
+    @Volatile
+    private var pluginInitialized = false
     private val random = Random()
     private val themes = Theme.entries.toTypedArray()
     private var currentTheme = Theme.None
@@ -112,14 +121,22 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private var regularParticlesEnabled = DEFAULT_REGULAR_PARTICLES_ENABLED
     private var regularParticlesIntensity = DEFAULT_REGULAR_PARTICLES_INTENSITY
 
-    fun isRegularParticlesEnabled() = regularParticlesEnabled
+    fun isRegularParticlesEnabled(): Boolean {
+        ensureSettingsLoaded()
+        return regularParticlesEnabled
+    }
     fun setRegularParticlesEnabled(enabled: Boolean) {
+        ensureSettingsLoaded()
         regularParticlesEnabled = enabled
         settings.regularParticlesEnabled = enabled
         refreshTypingEffectWeights()
     }
-    fun getRegularParticlesIntensity() = regularParticlesIntensity
+    fun getRegularParticlesIntensity(): Int {
+        ensureSettingsLoaded()
+        return regularParticlesIntensity
+    }
     fun setRegularParticlesIntensity(intensity: Int) {
+        ensureSettingsLoaded()
         regularParticlesIntensity = intensity.coerceIn(0, 100)
         settings.regularParticlesIntensity = regularParticlesIntensity
         refreshTypingEffectWeights()
@@ -131,14 +148,22 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private var stardustParticlesEnabled = DEFAULT_STARDUST_PARTICLES_ENABLED
     private var stardustParticlesIntensity = DEFAULT_STARDUST_PARTICLES_INTENSITY
 
-    fun isStardustParticlesEnabled() = stardustParticlesEnabled
+    fun isStardustParticlesEnabled(): Boolean {
+        ensureSettingsLoaded()
+        return stardustParticlesEnabled
+    }
     fun setStardustParticlesEnabled(enabled: Boolean) {
+        ensureSettingsLoaded()
         stardustParticlesEnabled = enabled
         settings.stardustParticlesEnabled = enabled
         refreshTypingEffectWeights()
     }
-    fun getStardustParticlesIntensity() = stardustParticlesIntensity
+    fun getStardustParticlesIntensity(): Int {
+        ensureSettingsLoaded()
+        return stardustParticlesIntensity
+    }
     fun setStardustParticlesIntensity(intensity: Int) {
+        ensureSettingsLoaded()
         stardustParticlesIntensity = intensity.coerceIn(0, 100)
         settings.stardustParticlesIntensity = stardustParticlesIntensity
         refreshTypingEffectWeights()
@@ -149,13 +174,21 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private var reverseParticlesEnabled = DEFAULT_REVERSE_PARTICLES_ENABLED
     private var reverseParticlesIntensity = DEFAULT_REVERSE_PARTICLES_INTENSITY
 
-    fun isReverseParticlesEnabled() = reverseParticlesEnabled
+    fun isReverseParticlesEnabled(): Boolean {
+        ensureSettingsLoaded()
+        return reverseParticlesEnabled
+    }
     fun setReverseParticlesEnabled(enabled: Boolean) {
+        ensureSettingsLoaded()
         reverseParticlesEnabled = enabled
         settings.reverseParticlesEnabled = enabled
     }
-    fun getReverseParticlesIntensity() = reverseParticlesIntensity
+    fun getReverseParticlesIntensity(): Int {
+        ensureSettingsLoaded()
+        return reverseParticlesIntensity
+    }
     fun setReverseParticlesIntensity(intensity: Int) {
+        ensureSettingsLoaded()
         reverseParticlesIntensity = intensity.coerceIn(0, 100)
         settings.reverseParticlesIntensity = reverseParticlesIntensity
     }
@@ -165,14 +198,62 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private var butterflyParticlesEnabled = DEFAULT_BUTTERFLY_PARTICLES_ENABLED
     private var butterflyParticlesIntensity = DEFAULT_BUTTERFLY_PARTICLES_INTENSITY
 
-    fun isButterfliesEnabled() = butterflyParticlesEnabled
+    private fun loadStateFromSettings() {
+        val savedSettings = settings
+
+        currentTheme = themes.getOrElse(savedSettings.themeIndex) { Theme.None }
+        snowEnabled = savedSettings.snowEnabled
+        snowIntensity = savedSettings.snowIntensity.coerceIn(0, 100)
+        regularParticlesEnabled = savedSettings.regularParticlesEnabled
+        regularParticlesIntensity = savedSettings.regularParticlesIntensity.coerceIn(0, 100)
+        stardustParticlesEnabled = savedSettings.stardustParticlesEnabled
+        stardustParticlesIntensity = savedSettings.stardustParticlesIntensity.coerceIn(0, 100)
+        reverseParticlesEnabled = savedSettings.reverseParticlesEnabled
+        reverseParticlesIntensity = savedSettings.reverseParticlesIntensity.coerceIn(0, 100)
+        butterflyParticlesEnabled = savedSettings.butterflyParticlesEnabled
+        butterflyParticlesIntensity = savedSettings.butterflyParticlesIntensity.coerceIn(0, 100)
+        grassEnabled = savedSettings.grassEnabled
+        grassIntensity = savedSettings.grassIntensity.coerceIn(0, 100)
+        refreshTypingEffectWeights()
+    }
+
+    private fun ensureSettingsLoaded() {
+        if (settingsLoaded) return
+
+        synchronized(initializationLock) {
+            if (settingsLoaded) return
+            loadStateFromSettings()
+            settingsLoaded = true
+        }
+    }
+
+    private fun ensurePluginInitialized() {
+        ensureSettingsLoaded()
+        if (pluginInitialized) return
+
+        synchronized(initializationLock) {
+            if (pluginInitialized) return
+            initPlugin()
+            pluginInitialized = true
+        }
+    }
+
+    fun isButterfliesEnabled(): Boolean {
+        ensureSettingsLoaded()
+        return butterflyParticlesEnabled
+    }
     fun setButterfliesEnabled(enabled: Boolean) {
+        ensureSettingsLoaded()
         butterflyParticlesEnabled = enabled
         settings.butterflyParticlesEnabled = enabled
         refreshTypingEffectWeights()
     }
-    fun getButterflyParticlesIntensity() = butterflyParticlesIntensity
+    fun getButterflyParticlesIntensity(): Int {
+        ensureSettingsLoaded()
+        return butterflyParticlesIntensity
+    }
     fun setButterflyParticlesIntensity(intensity: Int) {
+        ensureSettingsLoaded()
         butterflyParticlesIntensity = intensity.coerceIn(0, 100)
         settings.butterflyParticlesIntensity = butterflyParticlesIntensity
         refreshTypingEffectWeights()
@@ -183,18 +264,30 @@ object ZeusThunderbolt : ApplicationActivationListener {
     private var grassEnabled = DEFAULT_GRASS_ENABLED
     private var grassIntensity = DEFAULT_GRASS_INTENSITY
 
-    fun isGrassEnabled() = grassEnabled
+    fun isGrassEnabled(): Boolean {
+        ensureSettingsLoaded()
+        return grassEnabled
+    }
     fun setGrassEnabled(enabled: Boolean) {
+        ensureSettingsLoaded()
         grassEnabled = enabled
         settings.grassEnabled = enabled
     }
-    fun getGrassIntensity() = grassIntensity
+    fun getGrassIntensity(): Int {
+        ensureSettingsLoaded()
+        return grassIntensity
+    }
     fun setGrassIntensity(intensity: Int) {
+        ensureSettingsLoaded()
         grassIntensity = intensity.coerceIn(0, 100)
         settings.grassIntensity = grassIntensity
     }
-    fun getSnowIntensity() = snowIntensity
+    fun getSnowIntensity(): Int {
+        ensureSettingsLoaded()
+        return snowIntensity
+    }
     fun setSnowIntensity(intensity: Int) {
+        ensureSettingsLoaded()
         snowIntensity = intensity.coerceIn(0, 100)
         settings.snowIntensity = snowIntensity
         refreshTypingEffectWeights()
@@ -312,47 +405,38 @@ object ZeusThunderbolt : ApplicationActivationListener {
         lastMowerSpawnNs = 0L
     }
 
-    override fun applicationActivated(ideFrame: IdeFrame) {
-        ZeusThunderbolt
-    }
-
-    init {
-        initPlugin()
-    }
-
     fun setTheme(index: Int) {
+        ensureSettingsLoaded()
         currentTheme = themes.getOrElse(index) { Theme.None }
         settings.themeIndex = index
     }
 
-    fun getCurrentThemeIndex() = themes.indexOf(currentTheme)
+    fun getCurrentThemeIndex(): Int {
+        ensureSettingsLoaded()
+        return themes.indexOf(currentTheme)
+    }
 
-    fun getCurrentThemeColors() = currentTheme.colors
+    fun getCurrentThemeColors(): Array<out Color> {
+        ensureSettingsLoaded()
+        return currentTheme.colors
+    }
 
     fun getThemeNames() = themes.map { it.name }
 
-    fun isSnowEnabled() = snowEnabled
+    fun isSnowEnabled(): Boolean {
+        ensureSettingsLoaded()
+        return snowEnabled
+    }
 
     fun setSnowEnabled(enabled: Boolean) {
+        ensureSettingsLoaded()
         snowEnabled = enabled
         settings.snowEnabled = enabled
         refreshTypingEffectWeights()
     }
 
     private fun initPlugin() {
-        setTheme(settings.themeIndex)
-        setRegularParticlesEnabled(settings.regularParticlesEnabled)
-        setRegularParticlesIntensity(settings.regularParticlesIntensity)
-        setStardustParticlesEnabled(settings.stardustParticlesEnabled)
-        setStardustParticlesIntensity(settings.stardustParticlesIntensity)
-        setReverseParticlesEnabled(settings.reverseParticlesEnabled)
-        setReverseParticlesIntensity(settings.reverseParticlesIntensity)
-        setSnowEnabled(settings.snowEnabled)
-        setSnowIntensity(settings.snowIntensity)
-        setButterfliesEnabled(settings.butterflyParticlesEnabled)
-        setButterflyParticlesIntensity(settings.butterflyParticlesIntensity)
-        setGrassEnabled(settings.grassEnabled)
-        setGrassIntensity(settings.grassIntensity)
+        ensureSettingsLoaded()
         val editorFactory = EditorFactory.getInstance()
         val editors = mutableListOf<Editor>()
         val lastPositions = mutableMapOf<Caret, WorldPoint>()
@@ -2184,6 +2268,7 @@ object ZeusThunderbolt : ApplicationActivationListener {
 
         particle.force.x += forceX * dt
         particle.force.y += forceY * dt
+    }
     }
 }
 
