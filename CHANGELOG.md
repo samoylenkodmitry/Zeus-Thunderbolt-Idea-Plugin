@@ -1,5 +1,16 @@
 # Zeus Thunderbolt Plugin
 
+## [Unreleased]
+
+## [1.1.9] - 2026-04-22
+
+### Changed
+
+- update IntelliJ Platform target to 2025.2.6.1 and Java toolchain to 21
+- align the Kotlin Gradle plugin with the 2025.2 bundled stdlib
+- upgrade Gradle wrapper to 9.4.1
+- upgrade Foojay toolchain resolver to 1.0.0
+
 ## [1.1.8] - 2025-01-16
 
 ### Changed
@@ -79,8 +90,6 @@
 ### Changed
 
 - Werks
-
-## [Unreleased]
 
 ## [0.0.1] - 2024-11-17
 
