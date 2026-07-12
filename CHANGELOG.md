@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-12
+
+### Fixed
+
+- Build the plugin distribution with a space-free archive name (`Zeus-Thunderbolt`) so the JetBrains
+  Marketplace no longer fails compatibility verification with "The plugin archive file cannot be
+  extracted". The visible plugin name remains "Zeus Thunderbolt".
+
 ## [1.1.9] - 2026-04-22
 
 ### Changed
