@@ -52,6 +52,9 @@ dependencies {
 // Configure IntelliJ Platform Gradle Plugin - read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin-extension.html
 intellijPlatform {
     pluginConfiguration {
+        // rootProject.name is space-free ("Zeus-Thunderbolt") to keep the archive/jar entry paths
+        // clean; set the visible marketplace display name explicitly so it stays "Zeus Thunderbolt".
+        name = "Zeus Thunderbolt"
         version = providers.gradleProperty("pluginVersion")
 
         // Extract the <!-- Plugin description --> section from README.md and provide for the plugin's manifest
